@@ -121,6 +121,7 @@ function ParticipantCard({
 
 export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps) {
   const [participants, setParticipants] = useState<{ [uid: string]: Participant }>({});
+  const participantsRef = useRef<{ [uid: string]: Participant }>({});
   const [isMuted, setIsMuted] = useState(false);
   const [currentMood, setCurrentMood] = useState<Mood>('none');
   const [callName, setCallName] = useState('');
@@ -150,12 +151,13 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       snapshot.forEach((doc) => {
         const p = doc.data() as Participant;
         newParticipants[p.uid] = p;
-        if (p.uid !== auth.currentUser?.uid && !participants[p.uid]) {
+        if (p.uid !== auth.currentUser?.uid && !participantsRef.current[p.uid]) {
           // New participant joined, initiate WebRTC
           initiateCall(p.uid);
         }
       });
       setParticipants(newParticipants);
+      participantsRef.current = newParticipants;
     }, (err) => handleFirestoreError(err, OperationType.GET, `calls/${callId}/participants`));
 
     // Listen for call info
@@ -175,7 +177,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         const pRef = doc(db, 'calls', callId, 'participants', auth.currentUser.uid);
         deleteDoc(pRef).then(() => {
           // If this was the last participant, update lastActiveAt
-          if (Object.keys(participants).length <= 1) {
+          if (Object.keys(participantsRef.current).length <= 1) {
             updateDoc(doc(db, 'calls', callId), {
               lastActiveAt: new Date().toISOString()
             });
@@ -183,7 +185,8 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         });
       }
     };
-  }, [callId, participants]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId]);
 
   // Sync isMuted to Firestore
   useEffect(() => {
