@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email']) &&
+             data.uid is string &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 50 &&
+             data.email is string;
+    }
+
+    function isValidCall(data) {
+      return data.keys().hasAll(['name', 'creatorId', 'createdAt', 'status']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.creatorId == request.auth.uid &&
+             data.status in ['active', 'ended'] &&
+             data.createdAt is string; // Should ideally be timestamp, but code uses ISO string
+    }
+
+    function isValidParticipant(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'photoURL', 'joinedAt', 'mood', 'isMuted']) &&
+             data.uid == request.auth.uid &&
+             data.displayName is string &&
+             data.photoURL is string &&
+             data.joinedAt is string &&
+             data.mood is string &&
+             data.isMuted is bool;
+    }
+
+    function isValidSignal(data) {
+      return data.keys().hasAll(['from', 'to', 'type', 'data', 'timestamp']) &&
+             data.from == request.auth.uid &&
+             data.to is string &&
+             data.type in ['offer', 'answer', 'candidate'] &&
+             data.data is string &&
+             data.timestamp is string;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    // Calls collection
+    match /calls/{callId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCall(request.resource.data);
+      allow update: if isAuthenticated() && (
+        request.resource.data.creatorId == resource.data.creatorId ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+      );
+      
+      // Participants subcollection
+      match /participants/{userId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isOwner(userId) && isValidParticipant(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+      
+      // Signals subcollection
+      match /signals/{signalId} {
+        allow read: if isAuthenticated() && (request.auth.uid == resource.data.to || request.auth.uid == resource.data.from);
+        allow create: if isAuthenticated() && isValidSignal(request.resource.data) && request.auth.uid == request.resource.data.from;
+        allow delete: if isAuthenticated() && (request.auth.uid == resource.data.to || request.auth.uid == resource.data.from);
+      }
+    }
+  }
+}

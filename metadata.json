@@ -1,0 +1,5 @@
+{
+  "name": "Comunicaciones Made By Jada",
+  "description": "Una aplicación de llamadas de voz en tiempo real con estados de ánimo y personalización, diseñada para ser accesible y fluida.",
+  "requestFramePermissions": ["microphone"]
+}

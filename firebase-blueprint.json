@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "theme": { "type": "string", "enum": ["default", "ocean", "sunset", "forest"] },
+        "isDarkMode": { "type": "boolean" },
+        "avatarConfig": {
+          "type": "object",
+          "properties": {
+            "skinColor": { "type": "string" },
+            "top": { "type": "string" },
+            "clothes": { "type": "string" },
+            "mouth": { "type": "string" },
+            "eyes": { "type": "string" },
+            "backgroundColor": { "type": "string" }
+          }
+        }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "A voice communication session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "ended"] },
+        "lastActiveAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "creatorId", "createdAt", "status"]
+    },
+    "Participant": {
+      "title": "Participant",
+      "description": "A user in a call",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "mood": { "type": "string", "enum": ["feliz", "enojado", "frustrado", "perdido", "enamorado", "emocionado", "none"] },
+        "isMuted": { "type": "boolean" }
+      },
+      "required": ["uid", "joinedAt"]
+    },
+    "Signal": {
+      "title": "Signal",
+      "description": "WebRTC signaling data",
+      "type": "object",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "type": { "type": "string", "enum": ["offer", "answer", "candidate"] },
+        "data": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["from", "to", "type", "data", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/calls/{callId}": {
+      "schema": "Call",
+      "description": "Active and past calls"
+    },
+    "/calls/{callId}/participants/{userId}": {
+      "schema": "Participant",
+      "description": "Users currently in the call"
+    },
+    "/calls/{callId}/signals/{signalId}": {
+      "schema": "Signal",
+      "description": "Signaling for WebRTC"
+    }
+  }
+}
