@@ -219,14 +219,18 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       setParticipants(next);
     });
 
-    ch.on('presence', { event: 'leave' }, ({ key }) => {
-      // Cleanup explícito al cierre del WS de otro peer; no esperamos al sync.
-      setParticipants((prev) => {
-        if (!prev[key]) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
+    ch.on('presence', { event: 'leave' }, ({ key, currentPresences }) => {
+      // Solo eliminar si no quedan presencias activas para ese uid.
+      // IMPORTANTE: cada track() dispara un leave del estado anterior seguido de sync;
+      // si currentPresences > 0 el peer sigue conectado (solo actualizó su estado).
+      if (!currentPresences || currentPresences.length === 0) {
+        setParticipants((prev) => {
+          if (!prev[key]) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
     });
 
     ch.subscribe(async (status) => {
@@ -428,7 +432,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       <footer className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 p-4 card">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsMuted(!isMuted)}
+            onClick={() => setIsMuted(prev => !prev)}
             className={cn(
               "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
               isMuted ? "bg-red-100 text-red-600" : "bg-[var(--accent)] text-[var(--text)]"
