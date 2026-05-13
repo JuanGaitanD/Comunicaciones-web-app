@@ -1,10 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../supabase';
 import { motion } from 'motion/react';
 import { Plus, Phone, LogOut, Settings } from 'lucide-react';
 import { Call, UserProfile } from '../types';
-import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface DashboardProps {
   userProfile: UserProfile;
@@ -13,64 +11,83 @@ interface DashboardProps {
   onOpenSettings: () => void;
 }
 
+const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+
+function rowToCall(row: any): Call {
+  return {
+    id: row.id,
+    name: row.name,
+    creatorId: row.creator_id,
+    status: row.status,
+    createdAt: row.created_at,
+    lastActiveAt: row.last_active_at,
+  };
+}
+
 export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSettings }: DashboardProps) {
   const [activeCalls, setActiveCalls] = useState<Call[]>([]);
   const [endedCalls, setEndedCalls] = useState<Call[]>([]);
   const [newCallName, setNewCallName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
-  useEffect(() => {
-    const q = query(collection(db, 'calls'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const active: Call[] = [];
-      const ended: Call[] = [];
-      const now = new Date();
-
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as Call;
-        const call = { id: docSnap.id, ...data };
-        
-        if (data.status === 'active') {
-          // Auto-cleanup logic: if empty for > 5 minutes
-          if (data.lastActiveAt) {
-            const lastActive = new Date(data.lastActiveAt);
-            const diffMins = (now.getTime() - lastActive.getTime()) / (1000 * 60);
-            if (diffMins > 5) {
-              updateDoc(doc(db, 'calls', docSnap.id), { status: 'ended' });
-              ended.push({ ...call, status: 'ended' });
-              return;
-            }
-          }
-          active.push(call);
-        } else {
-          ended.push(call);
-        }
-      });
-
-      setActiveCalls(active.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      setEndedCalls(ended.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'calls'));
-    return () => unsubscribe();
+  const refetch = useCallback(async () => {
+    const activeThreshold = new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString();
+    const [activeResp, endedResp] = await Promise.all([
+      supabase
+        .from('calls')
+        .select('*')
+        .eq('status', 'active')
+        .gte('last_active_at', activeThreshold)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('calls')
+        .select('*')
+        .eq('status', 'ended')
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
+    if (activeResp.error) console.error('Error cargando activas:', activeResp.error);
+    if (endedResp.error) console.error('Error cargando historial:', endedResp.error);
+    setActiveCalls((activeResp.data ?? []).map(rowToCall));
+    setEndedCalls((endedResp.data ?? []).map(rowToCall));
   }, []);
+
+  useEffect(() => {
+    refetch();
+    const channel = supabase
+      .channel('calls-list')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'calls' },
+        () => refetch()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refetch]);
 
   const handleCreateCall = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCallName.trim() || !auth.currentUser) return;
+    if (!newCallName.trim()) return;
     setIsCreating(true);
-    try {
-      const docRef = await addDoc(collection(db, 'calls'), {
-        name: newCallName,
-        creatorId: auth.currentUser.uid,
-        createdAt: new Date().toISOString(),
-        status: 'active'
-      });
-      onJoinCall(docRef.id);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'calls');
-    } finally {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       setIsCreating(false);
-      setNewCallName('');
+      return;
     }
+    const { data, error } = await supabase
+      .from('calls')
+      .insert({ name: newCallName.trim(), creator_id: user.id })
+      .select()
+      .single();
+    setIsCreating(false);
+    setNewCallName('');
+    if (error || !data) {
+      console.error('Error creando llamada:', error);
+      return;
+    }
+    onJoinCall(data.id);
   };
 
   return (
@@ -79,9 +96,9 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
         <div className="flex items-center gap-6">
           <div className="relative">
             <div className="absolute inset-0 bg-[var(--primary)] opacity-20 blur-xl rounded-full" />
-            <img 
-              src={userProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile.uid}`} 
-              alt={userProfile.displayName} 
+            <img
+              src={userProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile.uid}`}
+              alt={userProfile.displayName}
               referrerPolicy="no-referrer"
               className="w-16 h-16 rounded-full border-2 border-[var(--primary)] relative z-10 shadow-lg"
             />
@@ -108,16 +125,16 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
               <p className="text-xs text-[var(--muted)] font-bold uppercase tracking-widest">Nueva Comunicación</p>
             </div>
             <form onSubmit={handleCreateCall} className="space-y-4">
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Nombre de la sala..."
                 value={newCallName}
                 onChange={(e) => setNewCallName(e.target.value)}
                 className="w-full p-4 bg-[var(--bg)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-[var(--primary)] transition-all font-medium"
                 required
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={isCreating}
                 className="w-full py-4 bg-[var(--primary)] text-white font-bold rounded-xl hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[var(--primary)]/20"
               >
@@ -146,7 +163,7 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
                 </div>
               ) : (
                 activeCalls.map((call) => (
-                  <motion.div 
+                  <motion.div
                     key={call.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -179,8 +196,8 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
               {endedCalls.length === 0 ? (
                 <p className="text-[var(--muted)] text-xs font-medium px-2">El historial aparecerá aquí.</p>
               ) : (
-                endedCalls.slice(0, 5).map((call) => (
-                  <div 
+                endedCalls.map((call) => (
+                  <div
                     key={call.id}
                     className="flex items-center justify-between p-4 bg-[var(--accent)]/20 rounded-xl border border-transparent hover:border-[var(--border)] transition-all grayscale opacity-60 hover:grayscale-0 hover:opacity-100"
                   >

@@ -1,147 +1,160 @@
-import { useEffect, useRef, useState } from 'react';
-import { db, auth } from '../firebase';
-import { collection, doc, onSnapshot, addDoc, deleteDoc, query, where } from 'firebase/firestore';
-import { Signal } from '../types';
-import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
-export function useWebRTC(callId: string | null) {
+type Signal =
+  | { from: string; to: string; type: 'offer'; data: string }
+  | { from: string; to: string; type: 'answer'; data: string }
+  | { from: string; to: string; type: 'candidate'; data: string };
+
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
+
+export function useWebRTC(
+  callId: string | null,
+  userId: string | null,
+  channel: RealtimeChannel | null
+) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{ [uid: string]: MediaStream }>({});
   const peerConnections = useRef<{ [uid: string]: RTCPeerConnection }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  const iceServers = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ],
-  };
-
+  // Capturar localStream una vez por llamada.
   useEffect(() => {
-    if (!callId || !auth.currentUser) return;
-
-    const setupLocalStream = async () => {
+    if (!callId) return;
+    let cancelled = false;
+    (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         setLocalStream(stream);
         localStreamRef.current = stream;
       } catch (err) {
-        console.error('Error accessing microphone:', err);
+        console.error('Error accediendo al micrófono:', err);
       }
-    };
-
-    setupLocalStream();
-
+    })();
     return () => {
-      localStreamRef.current?.getTracks().forEach(track => track.stop());
-      Object.values(peerConnections.current).forEach((pc: RTCPeerConnection) => pc.close());
+      cancelled = true;
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+      Object.values(peerConnections.current).forEach((pc) => pc.close());
       peerConnections.current = {};
+      setRemoteStreams({});
+      setLocalStream(null);
     };
   }, [callId]);
 
-  useEffect(() => {
-    if (!callId || !auth.currentUser || !localStream) return;
+  const sendSignal = useCallback(
+    (signal: Signal) => {
+      if (!channel) return;
+      channel.send({ type: 'broadcast', event: 'signal', payload: signal });
+    },
+    [channel]
+  );
 
-    const signalsRef = collection(db, 'calls', callId, 'signals');
-    const q = query(signalsRef, where('to', '==', auth.currentUser.uid));
+  const createPeerConnection = useCallback(
+    (peerUid: string): RTCPeerConnection => {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      for (const change of snapshot.docChanges()) {
-        if (change.type === 'added') {
-          const signal = change.doc.data() as Signal;
-          await handleSignal(signal, change.doc.id);
+      pc.onicecandidate = (event) => {
+        if (event.candidate && userId) {
+          sendSignal({
+            from: userId,
+            to: peerUid,
+            type: 'candidate',
+            data: JSON.stringify(event.candidate),
+          });
         }
+      };
+
+      pc.ontrack = (event) => {
+        setRemoteStreams((prev) => ({ ...prev, [peerUid]: event.streams[0] }));
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          setRemoteStreams((prev) => {
+            const next = { ...prev };
+            delete next[peerUid];
+            return next;
+          });
+        }
+      };
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, `calls/${callId}/signals`));
 
-    return () => unsubscribe();
-  }, [callId, localStream]);
+      peerConnections.current[peerUid] = pc;
+      return pc;
+    },
+    [userId, sendSignal]
+  );
 
-  const createPeerConnection = (uid: string) => {
-    const pc = new RTCPeerConnection(iceServers);
+  const handleSignal = useCallback(
+    async (signal: Signal) => {
+      if (!userId || signal.to !== userId) return;
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate && auth.currentUser && callId) {
-        addDoc(collection(db, 'calls', callId, 'signals'), {
-          from: auth.currentUser.uid,
-          to: uid,
-          type: 'candidate',
-          data: JSON.stringify(event.candidate),
-          timestamp: new Date().toISOString(),
-        }).catch(err => handleFirestoreError(err, OperationType.WRITE, `calls/${callId}/signals`));
-      }
-    };
+      let pc = peerConnections.current[signal.from];
+      if (!pc) pc = createPeerConnection(signal.from);
 
-    pc.ontrack = (event) => {
-      setRemoteStreams(prev => ({
-        ...prev,
-        [uid]: event.streams[0],
-      }));
-    };
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
-        pc.addTrack(track, localStreamRef.current!);
-      });
-    }
-
-    peerConnections.current[uid] = pc;
-    return pc;
-  };
-
-  const handleSignal = async (signal: Signal, signalId: string) => {
-    if (!callId || !auth.currentUser) return;
-
-    let pc = peerConnections.current[signal.from];
-    if (!pc) pc = createPeerConnection(signal.from);
-
-    if (signal.type === 'offer') {
-      await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      try {
-        await addDoc(collection(db, 'calls', callId, 'signals'), {
-          from: auth.currentUser.uid,
+      if (signal.type === 'offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendSignal({
+          from: userId,
           to: signal.from,
           type: 'answer',
           data: JSON.stringify(answer),
-          timestamp: new Date().toISOString(),
         });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `calls/${callId}/signals`);
+      } else if (signal.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
+      } else if (signal.type === 'candidate') {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(signal.data)));
+        } catch (err) {
+          console.warn('Error añadiendo ICE candidate:', err);
+        }
       }
-    } else if (signal.type === 'answer') {
-      await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
-    } else if (signal.type === 'candidate') {
-      await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(signal.data)));
-    }
+    },
+    [userId, createPeerConnection, sendSignal]
+  );
 
-    try {
-      await deleteDoc(doc(db, 'calls', callId, 'signals', signalId));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `calls/${callId}/signals/${signalId}`);
-    }
-  };
+  // Suscribirse al canal Broadcast para recibir señales.
+  useEffect(() => {
+    if (!channel || !userId) return;
+    const handler = ({ payload }: { payload: Signal }) => {
+      handleSignal(payload);
+    };
+    channel.on('broadcast', { event: 'signal' }, handler);
+    // El cleanup del canal lo hace el dueño (CallRoom) al desmontar.
+  }, [channel, userId, handleSignal]);
 
-  const initiateCall = async (targetUid: string) => {
-    if (!callId || !auth.currentUser || !localStream) return;
-
-    const pc = createPeerConnection(targetUid);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    try {
-      await addDoc(collection(db, 'calls', callId, 'signals'), {
-        from: auth.currentUser.uid,
+  const initiateCall = useCallback(
+    async (targetUid: string) => {
+      if (!userId || !localStreamRef.current) return;
+      const pc = createPeerConnection(targetUid);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal({
+        from: userId,
         to: targetUid,
         type: 'offer',
         data: JSON.stringify(offer),
-        timestamp: new Date().toISOString(),
       });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `calls/${callId}/signals`);
-    }
-  };
+    },
+    [userId, createPeerConnection, sendSignal]
+  );
 
   return { localStream, remoteStreams, initiateCall };
 }

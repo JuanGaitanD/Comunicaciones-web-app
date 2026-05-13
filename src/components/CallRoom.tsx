@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { db, auth } from '../firebase';
-import { doc, onSnapshot, collection, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mic, MicOff, PhoneOff, Volume2, AlertCircle } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { Participant, Mood, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface CallRoomProps {
   callId: string;
@@ -24,17 +23,19 @@ const MOODS: { type: Mood; emoji: string; label: string }[] = [
   { type: 'emocionado', emoji: '🤩', label: 'Emocionado' },
 ];
 
-function ParticipantCard({ 
-  participant, 
-  stream, 
-  isLocal, 
-  volume, 
-  onVolumeChange 
-}: { 
-  participant: Participant; 
-  stream: MediaStream | null; 
-  isLocal?: boolean; 
-  volume?: number; 
+const HEARTBEAT_MS = 60_000;
+
+function ParticipantCard({
+  participant,
+  stream,
+  isLocal,
+  volume,
+  onVolumeChange,
+}: {
+  participant: Participant;
+  stream: MediaStream | null;
+  isLocal?: boolean;
+  volume?: number;
   onVolumeChange?: (v: number) => void;
 }) {
   const audioLevel = useAudioLevel(stream);
@@ -48,7 +49,7 @@ function ParticipantCard({
   }, [stream, isLocal, volume]);
 
   return (
-    <motion.div 
+    <motion.div
       layout
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -56,18 +57,17 @@ function ParticipantCard({
       className="card p-6 flex flex-col items-center space-y-4 relative"
     >
       <div className="relative">
-        {/* Audio Indicator Ring */}
-        <motion.div 
-          animate={{ 
+        <motion.div
+          animate={{
             scale: participant.isMuted ? 1 : 1 + (audioLevel * 0.3),
-            opacity: participant.isMuted ? 0 : audioLevel > 0.1 ? 0.6 : 0
+            opacity: participant.isMuted ? 0 : audioLevel > 0.1 ? 0.6 : 0,
           }}
           className="absolute inset-0 rounded-full border-4 border-[var(--primary)] blur-sm"
         />
-        
-        <img 
-          src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`} 
-          alt={participant.displayName} 
+
+        <img
+          src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
+          alt={participant.displayName}
           referrerPolicy="no-referrer"
           className={cn(
             "w-24 h-24 rounded-full border-4 transition-all duration-300 relative z-10",
@@ -76,7 +76,7 @@ function ParticipantCard({
           )}
         />
         {participant.mood !== 'none' && (
-          <motion.div 
+          <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             className="absolute -top-2 -right-2 text-3xl bg-[var(--card)] rounded-full p-1 shadow-lg z-20"
@@ -90,7 +90,7 @@ function ParticipantCard({
           </div>
         )}
       </div>
-      
+
       <div className="text-center">
         <h3 className="font-bold text-[var(--text)]">{participant.displayName}</h3>
         <p className="text-xs text-[var(--muted)] capitalize">
@@ -102,10 +102,10 @@ function ParticipantCard({
         <div className="w-full space-y-2">
           <div className="flex items-center gap-2">
             <Volume2 size={14} className="text-[var(--muted)]" />
-            <input 
-              type="range" 
-              min="0" 
-              max="1" 
+            <input
+              type="range"
+              min="0"
+              max="1"
               step="0.1"
               value={volume ?? 1}
               onChange={(e) => onVolumeChange?.(parseFloat(e.target.value))}
@@ -121,88 +121,163 @@ function ParticipantCard({
 
 export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps) {
   const [participants, setParticipants] = useState<{ [uid: string]: Participant }>({});
-  const participantsRef = useRef<{ [uid: string]: Participant }>({});
   const [isMuted, setIsMuted] = useState(false);
   const [currentMood, setCurrentMood] = useState<Mood>('none');
   const [callName, setCallName] = useState('');
   const [creatorId, setCreatorId] = useState('');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [localVolumes, setLocalVolumes] = useState<{ [uid: string]: number }>({});
-  
-  const { localStream, remoteStreams, initiateCall } = useWebRTC(callId);
+  const [channel, setChannel] = useState<RealtimeChannel | null>(null);
 
+  const joinedAtRef = useRef<string>(new Date().toISOString());
+  const moodRef = useRef<Mood>('none');
+  const mutedRef = useRef<boolean>(false);
+  const knownPeersRef = useRef<Set<string>>(new Set());
+
+  const { localStream, remoteStreams, initiateCall } = useWebRTC(callId, userProfile.uid, channel);
+
+  // 1. Cargar info de la llamada inicial y suscribirse a cambios de su fila.
   useEffect(() => {
-    if (!callId || !auth.currentUser) return;
+    if (!callId) return;
+    let cancelled = false;
 
-    // Join call
-    const participantRef = doc(db, 'calls', callId, 'participants', auth.currentUser.uid);
-    setDoc(participantRef, {
-      uid: auth.currentUser.uid,
-      displayName: userProfile.displayName,
-      photoURL: userProfile.photoURL,
-      joinedAt: new Date().toISOString(),
-      mood: 'none',
-      isMuted: false
-    }).catch(err => handleFirestoreError(err, OperationType.WRITE, `calls/${callId}/participants/${auth.currentUser?.uid}`));
-
-    // Listen for participants
-    const unsubscribeParticipants = onSnapshot(collection(db, 'calls', callId, 'participants'), (snapshot) => {
-      const newParticipants: { [uid: string]: Participant } = {};
-      snapshot.forEach((doc) => {
-        const p = doc.data() as Participant;
-        newParticipants[p.uid] = p;
-        if (p.uid !== auth.currentUser?.uid && !participantsRef.current[p.uid]) {
-          // New participant joined, initiate WebRTC
-          initiateCall(p.uid);
-        }
-      });
-      setParticipants(newParticipants);
-      participantsRef.current = newParticipants;
-    }, (err) => handleFirestoreError(err, OperationType.GET, `calls/${callId}/participants`));
-
-    // Listen for call info
-    const unsubscribeCall = onSnapshot(doc(db, 'calls', callId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setCallName(data.name);
-        setCreatorId(data.creatorId);
-        if (data.status === 'ended') onLeave();
+    (async () => {
+      const { data, error } = await supabase
+        .from('calls')
+        .select('name, creator_id, status')
+        .eq('id', callId)
+        .single();
+      if (cancelled) return;
+      if (error || !data) {
+        console.error('Error cargando llamada:', error);
+        onLeave();
+        return;
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, `calls/${callId}`));
+      setCallName(data.name);
+      setCreatorId(data.creator_id);
+      if (data.status === 'ended') {
+        onLeave();
+      }
+    })();
+
+    const statusChannel = supabase
+      .channel(`call-status:${callId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
+        (payload) => {
+          const row = payload.new as any;
+          if (row.status === 'ended') onLeave();
+          if (row.name) setCallName(row.name);
+        }
+      )
+      .subscribe();
 
     return () => {
-      unsubscribeParticipants();
-      unsubscribeCall();
-      if (auth.currentUser) {
-        const pRef = doc(db, 'calls', callId, 'participants', auth.currentUser.uid);
-        deleteDoc(pRef).then(() => {
-          // If this was the last participant, update lastActiveAt
-          if (Object.keys(participantsRef.current).length <= 1) {
-            updateDoc(doc(db, 'calls', callId), {
-              lastActiveAt: new Date().toISOString()
-            });
-          }
+      cancelled = true;
+      supabase.removeChannel(statusChannel);
+    };
+  }, [callId, onLeave]);
+
+  // 2. Crear el canal Presence + Broadcast.
+  useEffect(() => {
+    if (!callId || !userProfile.uid) return;
+
+    joinedAtRef.current = new Date().toISOString();
+    moodRef.current = 'none';
+    mutedRef.current = false;
+    knownPeersRef.current.clear();
+    setCurrentMood('none');
+    setIsMuted(false);
+
+    const ch = supabase.channel(`call:${callId}`, {
+      config: { presence: { key: userProfile.uid } },
+    });
+
+    ch.on('presence', { event: 'sync' }, () => {
+      const state = ch.presenceState();
+      const next: { [uid: string]: Participant } = {};
+      for (const [uid, items] of Object.entries(state)) {
+        const item = (items as any[])[0];
+        if (!item) continue;
+        next[uid] = {
+          uid,
+          displayName: item.displayName,
+          photoURL: item.photoURL,
+          joinedAt: item.joinedAt,
+          mood: item.mood,
+          isMuted: item.isMuted,
+        };
+      }
+      setParticipants(next);
+    });
+
+    ch.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await ch.track({
+          displayName: userProfile.displayName,
+          photoURL: userProfile.photoURL,
+          joinedAt: joinedAtRef.current,
+          mood: moodRef.current,
+          isMuted: mutedRef.current,
         });
       }
+    });
+
+    setChannel(ch);
+
+    return () => {
+      ch.untrack();
+      supabase.removeChannel(ch);
+      setChannel(null);
+      setParticipants({});
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, userProfile.uid, userProfile.displayName, userProfile.photoURL]);
+
+  // 3. Iniciar oferta WebRTC para peers nuevos (regla: uid mayor inicia).
+  useEffect(() => {
+    for (const uid of Object.keys(participants)) {
+      if (uid === userProfile.uid) continue;
+      if (knownPeersRef.current.has(uid)) continue;
+      knownPeersRef.current.add(uid);
+      if (userProfile.uid > uid) initiateCall(uid);
+    }
+    // Olvidar peers que ya no están (por si reentran).
+    for (const uid of Array.from(knownPeersRef.current)) {
+      if (uid !== userProfile.uid && !participants[uid]) {
+        knownPeersRef.current.delete(uid);
+      }
+    }
+  }, [participants, userProfile.uid, initiateCall]);
+
+  // 4. Heartbeat de actividad: RPC touch_call cada 60s.
+  useEffect(() => {
+    if (!callId) return;
+    const tick = () => supabase.rpc('touch_call', { p_call_id: callId });
+    tick();
+    const id = setInterval(tick, HEARTBEAT_MS);
+    return () => clearInterval(id);
   }, [callId]);
 
-  // Sync isMuted to Firestore
+  // 5. Sincronizar isMuted al track de presence + al audio track.
   useEffect(() => {
-    if (!callId || !auth.currentUser) return;
-    const participantRef = doc(db, 'calls', callId, 'participants', auth.currentUser.uid);
-    updateDoc(participantRef, { isMuted }).catch(err => 
-      handleFirestoreError(err, OperationType.UPDATE, `calls/${callId}/participants/${auth.currentUser?.uid}`)
-    );
-  }, [isMuted, callId]);
-
-  useEffect(() => {
+    mutedRef.current = isMuted;
     if (localStream) {
-      localStream.getAudioTracks()[0].enabled = !isMuted;
+      const track = localStream.getAudioTracks()[0];
+      if (track) track.enabled = !isMuted;
     }
-  }, [isMuted, localStream]);
+    if (channel) {
+      channel.track({
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        joinedAt: joinedAtRef.current,
+        mood: moodRef.current,
+        isMuted,
+      });
+    }
+  }, [isMuted, localStream, channel, userProfile.displayName, userProfile.photoURL]);
 
+  // 6. Atajos de teclado.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'm') setIsMuted(prev => !prev);
@@ -212,25 +287,27 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onLeave]);
 
-  const handleMoodSelect = async (mood: Mood) => {
-    if (!auth.currentUser) return;
-    const newMood = currentMood === mood ? 'none' : mood;
+  const handleMoodSelect = useCallback((mood: Mood) => {
+    const newMood: Mood = currentMood === mood ? 'none' : mood;
     setCurrentMood(newMood);
-    try {
-      await updateDoc(doc(db, 'calls', callId, 'participants', auth.currentUser.uid), {
-        mood: newMood
+    moodRef.current = newMood;
+    if (channel) {
+      channel.track({
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        joinedAt: joinedAtRef.current,
+        mood: newMood,
+        isMuted: mutedRef.current,
       });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `calls/${callId}/participants/${auth.currentUser.uid}`);
     }
-  };
+  }, [currentMood, channel, userProfile.displayName, userProfile.photoURL]);
 
   const handleVolumeChange = (uid: string, volume: number) => {
     setLocalVolumes(prev => ({ ...prev, [uid]: volume }));
   };
 
   const handleLeaveClick = () => {
-    if (auth.currentUser?.uid === creatorId) {
+    if (userProfile.uid === creatorId) {
       setShowLeaveModal(true);
     } else {
       onLeave();
@@ -238,25 +315,28 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   };
 
   const handleEndCallForAll = async () => {
-    try {
-      await updateDoc(doc(db, 'calls', callId), { status: 'ended' });
-      onLeave();
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `calls/${callId}`);
+    const { error } = await supabase
+      .from('calls')
+      .update({ status: 'ended', ended_at: new Date().toISOString() })
+      .eq('id', callId);
+    if (error) {
+      console.error('Error cerrando llamada:', error);
+      return;
     }
+    onLeave();
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--bg)] p-6">
       <AnimatePresence>
         {showLeaveModal && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               className="card max-w-md w-full p-8 space-y-6 shadow-2xl border-t-4 border-t-red-500"
@@ -271,19 +351,19 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3">
-                <button 
+                <button
                   onClick={handleEndCallForAll}
                   className="w-full py-4 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
                 >
                   Terminar para todos
                 </button>
-                <button 
+                <button
                   onClick={onLeave}
                   className="w-full py-4 bg-[var(--accent)] text-[var(--text)] font-bold rounded-xl hover:bg-[var(--border)] transition-all"
                 >
                   Solo salirme yo
                 </button>
-                <button 
+                <button
                   onClick={() => setShowLeaveModal(false)}
                   className="w-full py-3 text-[var(--muted)] font-medium hover:text-[var(--text)] transition-all"
                 >
@@ -300,7 +380,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
           <h1 className="text-2xl font-bold text-[var(--text)]">{callName}</h1>
           <p className="text-sm text-[var(--muted)]">{Object.keys(participants).length} participantes conectados</p>
         </div>
-        <button 
+        <button
           onClick={handleLeaveClick}
           className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center gap-2"
           aria-label="Terminar comunicación (Esc)"
@@ -312,11 +392,11 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       <main className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 content-start">
         <AnimatePresence>
           {Object.values(participants).map((p: Participant) => (
-            <ParticipantCard 
+            <ParticipantCard
               key={p.uid}
               participant={p}
-              stream={p.uid === auth.currentUser?.uid ? localStream : remoteStreams[p.uid]}
-              isLocal={p.uid === auth.currentUser?.uid}
+              stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+              isLocal={p.uid === userProfile.uid}
               volume={localVolumes[p.uid]}
               onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
             />
@@ -326,7 +406,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
 
       <footer className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 p-4 card">
         <div className="flex items-center gap-2">
-          <button 
+          <button
             onClick={() => setIsMuted(!isMuted)}
             className={cn(
               "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
@@ -341,7 +421,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
 
         <div className="flex items-center gap-2 bg-[var(--bg)] p-2 rounded-full border border-[var(--border)]">
           {MOODS.map((m) => (
-            <button 
+            <button
               key={m.type}
               onClick={() => handleMoodSelect(m.type)}
               className={cn(

@@ -1,15 +1,14 @@
-import React, { useState } from 'react';
-import { db, auth } from '../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabase';
 import { motion } from 'motion/react';
 import { X, Check, Moon, Sun, Palette, Shuffle } from 'lucide-react';
 import { UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface ProfileProps {
   userProfile: UserProfile;
   onClose: () => void;
+  onProfileUpdated?: () => void | Promise<void>;
 }
 
 const THEMES: { id: UserProfile['theme']; label: string; color: string }[] = [
@@ -28,7 +27,7 @@ const AVATAR_OPTIONS = {
   backgroundColor: ['b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf'],
 };
 
-export default function Profile({ userProfile, onClose }: ProfileProps) {
+export default function Profile({ userProfile, onClose, onProfileUpdated }: ProfileProps) {
   const [displayName, setDisplayName] = useState(userProfile.displayName);
   const [avatarConfig, setAvatarConfig] = useState(userProfile.avatarConfig || {
     skinColor: 'ffdbb4',
@@ -42,10 +41,9 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
   const [isDarkMode, setIsDarkMode] = useState(userProfile.isDarkMode || false);
   const [loading, setLoading] = useState(false);
 
-  // Real-time theme application
-  React.useEffect(() => {
+  useEffect(() => {
     const root = document.documentElement;
-    root.className = ''; // Reset
+    root.className = '';
     if (theme && theme !== 'default') {
       root.classList.add(`theme-${theme}`);
     }
@@ -79,23 +77,27 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
   };
 
   const handleSave = async () => {
-    if (!auth.currentUser) return;
     setLoading(true);
-    try {
-      const photoURL = getAvatarUrl(avatarConfig);
-      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-        displayName,
-        photoURL,
-        avatarConfig,
+    const photoURL = getAvatarUrl(avatarConfig);
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        display_name: displayName,
+        photo_url: photoURL,
+        avatar_config: avatarConfig,
         theme,
-        isDarkMode
-      });
-      onClose();
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${auth.currentUser.uid}`);
-    } finally {
-      setLoading(false);
+        is_dark_mode: isDarkMode,
+      })
+      .eq('id', userProfile.uid);
+
+    setLoading(false);
+
+    if (error) {
+      console.error('Error guardando perfil:', error);
+      return;
     }
+    await onProfileUpdated?.();
+    onClose();
   };
 
   const updateAvatar = (key: keyof typeof avatarConfig, value: string) => {
@@ -104,13 +106,13 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="card w-full max-w-2xl max-h-[90vh] overflow-y-auto p-8 relative scrollbar-hide"
       >
         <button onClick={onClose} className="absolute top-6 right-6 btn-icon text-[var(--muted)] hover:bg-[var(--accent)]"><X size={20} /></button>
-        
+
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-[var(--text)] tracking-tight">Personalizar Perfil</h2>
           <p className="text-[var(--muted)]">Ajusta tu identidad digital</p>
@@ -122,13 +124,13 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
             <div className="flex flex-col items-center space-y-6">
               <div className="relative group">
                 <div className="absolute inset-0 bg-[var(--primary)] opacity-20 blur-2xl rounded-full" />
-                <img 
-                  src={getAvatarUrl(avatarConfig)} 
-                  alt="Avatar Preview" 
+                <img
+                  src={getAvatarUrl(avatarConfig)}
+                  alt="Avatar Preview"
                   referrerPolicy="no-referrer"
                   className="w-48 h-48 rounded-full border-4 border-[var(--primary)] relative z-10 shadow-2xl"
                 />
-                <button 
+                <button
                   onClick={handleRandomize}
                   className="absolute top-0 left-0 z-20 p-3 bg-white dark:bg-gray-800 text-[var(--primary)] rounded-full shadow-lg hover:scale-110 transition-transform border border-[var(--border)]"
                   title="Aleatorio"
@@ -136,11 +138,11 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                   <Shuffle size={20} />
                 </button>
               </div>
-              
+
               <div className="w-full space-y-2">
                 <label className="text-xs uppercase tracking-widest font-bold text-[var(--muted)]">Nombre Público</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   className="w-full p-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-[var(--primary)] transition-all font-medium"
@@ -156,7 +158,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                     {isDarkMode ? <Moon size={20} className="text-blue-400" /> : <Sun size={20} className="text-yellow-500" />}
                     <span className="font-medium">Modo Oscuro</span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setIsDarkMode(!isDarkMode)}
                     className={cn(
                       "w-12 h-6 rounded-full p-1 transition-colors relative",
@@ -177,7 +179,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     {THEMES.map((t) => (
-                      <button 
+                      <button
                         key={t.id}
                         onClick={() => setTheme(t.id)}
                         className={cn(
@@ -198,14 +200,14 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
           {/* Right Column: Avatar Customization */}
           <div className="space-y-6">
             <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--muted)]">Diseño de Avatar</h3>
-            
+
             <div className="space-y-6">
               {/* Skin Color */}
               <div className="space-y-2">
                 <label className="text-xs font-bold text-[var(--muted)]">Color de Piel</label>
                 <div className="flex flex-wrap gap-2">
                   {AVATAR_OPTIONS.skinColor.map(color => (
-                    <button 
+                    <button
                       key={color}
                       onClick={() => updateAvatar('skinColor', color)}
                       className={cn(
@@ -223,7 +225,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                 <label className="text-xs font-bold text-[var(--muted)]">Cabello / Estilo</label>
                 <div className="grid grid-cols-2 gap-2">
                   {AVATAR_OPTIONS.top.map(top => (
-                    <button 
+                    <button
                       key={top}
                       onClick={() => updateAvatar('top', top)}
                       className={cn(
@@ -242,7 +244,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                 <label className="text-xs font-bold text-[var(--muted)]">Ropa</label>
                 <div className="grid grid-cols-2 gap-2">
                   {AVATAR_OPTIONS.clothes.map(item => (
-                    <button 
+                    <button
                       key={item}
                       onClick={() => updateAvatar('clothes', item)}
                       className={cn(
@@ -261,7 +263,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                 <label className="text-xs font-bold text-[var(--muted)]">Boca / Expresión</label>
                 <div className="grid grid-cols-2 gap-2">
                   {AVATAR_OPTIONS.mouth.map(item => (
-                    <button 
+                    <button
                       key={item}
                       onClick={() => updateAvatar('mouth', item)}
                       className={cn(
@@ -280,7 +282,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                 <label className="text-xs font-bold text-[var(--muted)]">Ojos</label>
                 <div className="grid grid-cols-2 gap-2">
                   {AVATAR_OPTIONS.eyes.map(item => (
-                    <button 
+                    <button
                       key={item}
                       onClick={() => updateAvatar('eyes', item)}
                       className={cn(
@@ -299,7 +301,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
                 <label className="text-xs font-bold text-[var(--muted)]">Fondo</label>
                 <div className="flex flex-wrap gap-2">
                   {AVATAR_OPTIONS.backgroundColor.map(color => (
-                    <button 
+                    <button
                       key={color}
                       onClick={() => updateAvatar('backgroundColor', color)}
                       className={cn(
@@ -316,7 +318,7 @@ export default function Profile({ userProfile, onClose }: ProfileProps) {
         </div>
 
         <div className="pt-8 mt-8 border-t border-[var(--border)] flex justify-end">
-          <button 
+          <button
             onClick={handleSave}
             disabled={loading}
             className="w-full md:w-auto px-12 py-4 bg-[var(--primary)] text-white font-bold rounded-xl hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[var(--primary)]/20 active:scale-95"
