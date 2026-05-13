@@ -27,15 +27,23 @@ const AVATAR_OPTIONS = {
   backgroundColor: ['b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf'],
 };
 
+const DEFAULT_AVATAR_CONFIG = {
+  skinColor: 'ffdbb4',
+  top: 'bigHair',
+  clothes: 'shirtCrewNeck',
+  mouth: 'smile',
+  eyes: 'default',
+  backgroundColor: 'b6e3f4',
+};
+
 export default function Profile({ userProfile, onClose, onProfileUpdated }: ProfileProps) {
   const [displayName, setDisplayName] = useState(userProfile.displayName);
-  const [avatarConfig, setAvatarConfig] = useState(userProfile.avatarConfig || {
-    skinColor: 'ffdbb4',
-    top: 'bigHair',
-    clothes: 'shirtCrewNeck',
-    mouth: 'smile',
-    eyes: 'default',
-    backgroundColor: 'b6e3f4',
+  const [avatarConfig, setAvatarConfig] = useState(() => {
+    const cfg = userProfile.avatarConfig;
+    // Si DB trae null o {} (default jsonb), arrancamos con el preset completo.
+    // Si trae algo parcial, mergeamos para tener todos los campos válidos.
+    if (!cfg || Object.keys(cfg).length === 0) return DEFAULT_AVATAR_CONFIG;
+    return { ...DEFAULT_AVATAR_CONFIG, ...cfg };
   });
   const [theme, setTheme] = useState(userProfile.theme || 'default');
   const [isDarkMode, setIsDarkMode] = useState(userProfile.isDarkMode || false);
@@ -54,12 +62,12 @@ export default function Profile({ userProfile, onClose, onProfileUpdated }: Prof
 
   const getAvatarUrl = (config: typeof avatarConfig) => {
     const params = new URLSearchParams({
-      skinColor: config.skinColor || 'ffdbb4',
-      top: config.top || 'shortHair',
-      clothing: config.clothes || 'shirt',
-      mouth: config.mouth || 'smile',
-      eyes: config.eyes || 'default',
-      backgroundColor: config.backgroundColor || 'b6e3f4',
+      skinColor: config.skinColor || DEFAULT_AVATAR_CONFIG.skinColor,
+      top: config.top || DEFAULT_AVATAR_CONFIG.top,
+      clothing: config.clothes || DEFAULT_AVATAR_CONFIG.clothes,
+      mouth: config.mouth || DEFAULT_AVATAR_CONFIG.mouth,
+      eyes: config.eyes || DEFAULT_AVATAR_CONFIG.eyes,
+      backgroundColor: config.backgroundColor || DEFAULT_AVATAR_CONFIG.backgroundColor,
     });
     return `https://api.dicebear.com/7.x/avataaars/svg?${params.toString()}`;
   };
