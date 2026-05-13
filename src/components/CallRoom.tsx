@@ -45,6 +45,11 @@ function ParticipantCard({
     if (audioRef.current && stream && !isLocal) {
       audioRef.current.srcObject = stream;
       audioRef.current.volume = volume ?? 1;
+      // Chrome bloquea autoplay del <audio> cuando el stream también está
+      // conectado a un AudioContext (useAudioLevel). Forzar play.
+      audioRef.current.play().catch((err) => {
+        console.warn('No se pudo reproducir audio remoto:', err);
+      });
     }
   }, [stream, isLocal, volume]);
 
@@ -198,7 +203,9 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       const state = ch.presenceState();
       const next: { [uid: string]: Participant } = {};
       for (const [uid, items] of Object.entries(state)) {
-        const item = (items as any[])[0];
+        const arr = items as any[];
+        // El último item tiene el payload más reciente cuando hay re-tracks.
+        const item = arr[arr.length - 1];
         if (!item) continue;
         next[uid] = {
           uid,
@@ -210,6 +217,16 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         };
       }
       setParticipants(next);
+    });
+
+    ch.on('presence', { event: 'leave' }, ({ key }) => {
+      // Cleanup explícito al cierre del WS de otro peer; no esperamos al sync.
+      setParticipants((prev) => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
     });
 
     ch.subscribe(async (status) => {
@@ -253,7 +270,11 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   // 4. Heartbeat de actividad: RPC touch_call cada 60s.
   useEffect(() => {
     if (!callId) return;
-    const tick = () => supabase.rpc('touch_call', { p_call_id: callId });
+    const tick = () => {
+      supabase.rpc('touch_call', { p_call_id: callId }).then(({ error }) => {
+        if (error) console.error('touch_call falló:', error);
+      });
+    };
     tick();
     const id = setInterval(tick, HEARTBEAT_MS);
     return () => clearInterval(id);
