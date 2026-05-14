@@ -138,6 +138,10 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   const moodRef = useRef<Mood>('none');
   const mutedRef = useRef<boolean>(false);
   const knownPeersRef = useRef<Set<string>>(new Set());
+  // channelRef: solo se asigna cuando el canal está SUBSCRIBED.
+  // Evita que Effect 5 llame track() antes de que el canal esté listo
+  // (lo que acumularía entradas fantasma en presenceState).
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const { localStream, remoteStreams, initiateCall } = useWebRTC(callId, userProfile.uid, channel);
 
@@ -204,7 +208,6 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       const next: { [uid: string]: Participant } = {};
       for (const [uid, items] of Object.entries(state)) {
         const arr = items as any[];
-        // El último item tiene el payload más reciente cuando hay re-tracks.
         const item = arr[arr.length - 1];
         if (!item) continue;
         next[uid] = {
@@ -233,21 +236,28 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       }
     });
 
+    // active: impide que el callback de subscribe actúe si React ya limpió este
+    // effect (React StrictMode en dev monta→desmonta→remonta; sin este flag el
+    // canal antiguo también llamaría track() y acumularía entradas fantasma).
+    let active = true;
+
     ch.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await ch.track({
-          displayName: userProfile.displayName,
-          photoURL: userProfile.photoURL,
-          joinedAt: joinedAtRef.current,
-          mood: moodRef.current,
-          isMuted: mutedRef.current,
-        });
-      }
+      if (!active || status !== 'SUBSCRIBED') return;
+      channelRef.current = ch;
+      await ch.track({
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        joinedAt: joinedAtRef.current,
+        mood: moodRef.current,
+        isMuted: mutedRef.current,
+      });
     });
 
     setChannel(ch);
 
     return () => {
+      active = false;
+      channelRef.current = null;
       ch.untrack();
       supabase.removeChannel(ch);
       setChannel(null);
@@ -285,14 +295,17 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   }, [callId]);
 
   // 5. Sincronizar isMuted al track de presence + al audio track.
+  // Usa channelRef (no el state `channel`) para no dispararse cuando el state
+  // cambia de null→ch durante la suscripción (eso causaba doble-track y acumulación).
   useEffect(() => {
     mutedRef.current = isMuted;
     if (localStream) {
       const track = localStream.getAudioTracks()[0];
       if (track) track.enabled = !isMuted;
     }
-    if (channel) {
-      channel.track({
+    const ch = channelRef.current;
+    if (ch) {
+      ch.track({
         displayName: userProfile.displayName,
         photoURL: userProfile.photoURL,
         joinedAt: joinedAtRef.current,
@@ -300,7 +313,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         isMuted,
       });
     }
-  }, [isMuted, localStream, channel, userProfile.displayName, userProfile.photoURL]);
+  }, [isMuted, localStream, userProfile.displayName, userProfile.photoURL]);
 
   // 6. Atajos de teclado.
   useEffect(() => {
@@ -316,8 +329,9 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     const newMood: Mood = currentMood === mood ? 'none' : mood;
     setCurrentMood(newMood);
     moodRef.current = newMood;
-    if (channel) {
-      channel.track({
+    const ch = channelRef.current;
+    if (ch) {
+      ch.track({
         displayName: userProfile.displayName,
         photoURL: userProfile.photoURL,
         joinedAt: joinedAtRef.current,
@@ -325,7 +339,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         isMuted: mutedRef.current,
       });
     }
-  }, [currentMood, channel, userProfile.displayName, userProfile.photoURL]);
+  }, [currentMood, userProfile.displayName, userProfile.photoURL]);
 
   const handleVolumeChange = (uid: string, volume: number) => {
     setLocalVolumes(prev => ({ ...prev, [uid]: volume }));
