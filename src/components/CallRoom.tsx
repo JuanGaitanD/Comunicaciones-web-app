@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -133,17 +133,34 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [localVolumes, setLocalVolumes] = useState<{ [uid: string]: number }>({});
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
+  // reconnectTick: se incrementa cuando el canal Realtime se cierra
+  // inesperadamente desde el servidor. Va en las deps de Effect 2 → fuerza
+  // la creación de un canal nuevo (con backoff de 1s). El estado local de
+  // mood/mute se preserva entre reconexiones para no perder cambios recientes.
+  const [reconnectTick, setReconnectTick] = useState(0);
 
   const joinedAtRef = useRef<string>(new Date().toISOString());
   const moodRef = useRef<Mood>('none');
   const mutedRef = useRef<boolean>(false);
   const knownPeersRef = useRef<Set<string>>(new Set());
+  // presenceUidsRef: uids vistos en el último sync. Sirve para detectar
+  // peers nuevos y broadcastear nuestro estado dinámico (mood/isMuted) a
+  // ellos, ya que estos campos viajan por Broadcast y no por Presence.
+  const presenceUidsRef = useRef<Set<string>>(new Set());
   // channelRef: solo se asigna cuando el canal está SUBSCRIBED.
   // Evita que Effect 5 llame track() antes de que el canal esté listo
   // (lo que acumularía entradas fantasma en presenceState).
   const channelRef = useRef<RealtimeChannel | null>(null);
 
-  const { localStream, remoteStreams, initiateCall } = useWebRTC(callId, userProfile.uid, channel);
+  // Clave estable del conjunto de uids vivos. Evita que useWebRTC reciba un
+  // array nuevo en cada render (Object.keys devuelve referencia nueva siempre)
+  // y dispare cleanups espurios cuando solo cambia mood/mute local.
+  const peerUidsKey = useMemo(
+    () => Object.keys(participants).sort().join(','),
+    [participants]
+  );
+
+  const { localStream, remoteStreams, initiateCall } = useWebRTC(callId, userProfile.uid, channel, peerUidsKey);
 
   // 1. Cargar info de la llamada inicial y suscribirse a cambios de su fila.
   useEffect(() => {
@@ -192,82 +209,163 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   useEffect(() => {
     if (!callId || !userProfile.uid) return;
 
-    joinedAtRef.current = new Date().toISOString();
-    moodRef.current = 'none';
-    mutedRef.current = false;
-    knownPeersRef.current.clear();
-    setCurrentMood('none');
-    setIsMuted(false);
+    // Solo reseteamos en la conexión inicial. En reconexión preservamos
+    // mood/mute/knownPeers para no perder cambios recientes ni reiniciar WebRTC.
+    if (reconnectTick === 0) {
+      joinedAtRef.current = new Date().toISOString();
+      moodRef.current = 'none';
+      mutedRef.current = false;
+      knownPeersRef.current.clear();
+      setCurrentMood('none');
+      setIsMuted(false);
+    }
+    // En reconexión también limpiamos presenceUidsRef: el nuevo canal hará
+    // sync desde cero y debemos re-broadcastear nuestro estado a los peers
+    // que veamos "nuevos" (que en realidad estaban antes pero no en este canal).
+    presenceUidsRef.current = new Set();
 
     const ch = supabase.channel(`call:${callId}`, {
       config: { presence: { key: userProfile.uid } },
     });
 
+    // Presence: identidad estática (displayName, photoURL, joinedAt).
+    // El estado dinámico (mood, isMuted) viaja por Broadcast.
+    // Razón: track() en Supabase Realtime no reemplaza el slot — el servidor
+    // acumula entries y termina cerrando el canal por sobrecarga.
     ch.on('presence', { event: 'sync' }, () => {
       const state = ch.presenceState();
-      console.log('[DIAG sync] presenceState completo:', JSON.stringify(state));
-      const next: { [uid: string]: Participant } = {};
-      for (const [uid, items] of Object.entries(state)) {
-        const arr = items as any[];
-        const item = arr[arr.length - 1];
-        console.log(`[DIAG sync] uid=${uid.slice(0,8)} entries=${arr.length} isMuted=${item?.isMuted} mood=${item?.mood}`);
-        if (!item) continue;
-        next[uid] = {
-          uid,
-          displayName: item.displayName,
-          photoURL: item.photoURL,
-          joinedAt: item.joinedAt,
-          mood: item.mood,
-          isMuted: item.isMuted,
-        };
+      const currentUids = new Set<string>();
+      setParticipants(prev => {
+        const next: { [uid: string]: Participant } = {};
+        for (const [uid, items] of Object.entries(state)) {
+          const arr = items as any[];
+          const item = arr[arr.length - 1];
+          if (!item) continue;
+          currentUids.add(uid);
+          next[uid] = {
+            uid,
+            displayName: item.displayName,
+            photoURL: item.photoURL,
+            joinedAt: item.joinedAt,
+            // mood/isMuted vienen de Broadcast. Preservamos lo que ya teníamos
+            // y dejamos defaults si nunca recibimos broadcast de este peer.
+            mood: prev[uid]?.mood ?? 'none',
+            isMuted: prev[uid]?.isMuted ?? false,
+          };
+        }
+        return next;
+      });
+      console.log('[DIAG sync] uids:', [...currentUids].map(u => u.slice(0,8)).join(','));
+      // Detectar peers nuevos respecto al último sync de ESTE canal.
+      // Si entró alguien nuevo, broadcasteamos nuestro estado para que nos
+      // vea con el mood/isMuted correcto en lugar de los defaults.
+      const newcomers: string[] = [];
+      for (const uid of currentUids) {
+        if (uid !== userProfile.uid && !presenceUidsRef.current.has(uid)) {
+          newcomers.push(uid);
+        }
       }
-      setParticipants(next);
-    });
-
-    ch.on('presence', { event: 'leave' }, ({ key, currentPresences }) => {
-      // Solo eliminar si no quedan presencias activas para ese uid.
-      // IMPORTANTE: cada track() dispara un leave del estado anterior seguido de sync;
-      // si currentPresences > 0 el peer sigue conectado (solo actualizó su estado).
-      if (!currentPresences || currentPresences.length === 0) {
-        setParticipants((prev) => {
-          if (!prev[key]) return prev;
-          const next = { ...prev };
-          delete next[key];
-          return next;
+      presenceUidsRef.current = currentUids;
+      if (newcomers.length > 0 && channelRef.current === ch) {
+        ch.send({
+          type: 'broadcast',
+          event: 'peer-state',
+          payload: {
+            uid: userProfile.uid,
+            mood: moodRef.current,
+            isMuted: mutedRef.current,
+          },
         });
       }
     });
+
+    // Broadcast: estado dinámico de cada peer. Sin acumulación porque
+    // broadcast no persiste — cada mensaje es independiente y sustituye
+    // el estado anterior en nuestro local participants[uid].
+    ch.on('broadcast', { event: 'peer-state' }, ({ payload }) => {
+      const { uid, mood, isMuted } = payload as {
+        uid: string;
+        mood: Mood;
+        isMuted: boolean;
+      };
+      console.log('[DIAG broadcast peer-state]', uid.slice(0,8), 'mood:', mood, 'isMuted:', isMuted);
+      // Solo aplicamos para peers remotos. Nuestro propio estado lo
+      // controlamos localmente con isMuted/currentMood.
+      if (uid === userProfile.uid) return;
+      setParticipants(prev => {
+        if (!prev[uid]) return prev; // todavía no tenemos su presence
+        return { ...prev, [uid]: { ...prev[uid], mood, isMuted } };
+      });
+    });
+
+    // No registramos handler de 'leave' explícito:
+    // - Cada untrack()+track() genera un leave seguido de sync; si borrásemos
+    //   al participante en el leave, habría un flash visual y se reiniciaría WebRTC.
+    // - El handler de 'sync' ya reconstruye el estado completo; cuando un peer
+    //   realmente se desconecta, el sync llega sin ese uid y lo elimina de participants.
 
     // active: impide que el callback de subscribe actúe si React ya limpió este
     // effect (React StrictMode en dev monta→desmonta→remonta; sin este flag el
     // canal antiguo también llamaría track() y acumularía entradas fantasma).
     let active = true;
+    // Timer de reconexión: lo guardamos para poder cancelarlo en el cleanup
+    // y evitar setState tras unmount o disparos duplicados si el servidor
+    // emite CLOSED+CHANNEL_ERROR en cascada.
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     ch.subscribe(async (status) => {
       console.log('[DIAG subscribe] status:', status, '| active:', active);
+      // Si el canal se cerró inesperadamente desde el servidor, limpiar la ref
+      // para que Effect 5 no intente trackear sobre un canal muerto → timed out.
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        if (channelRef.current === ch) channelRef.current = null;
+        if (active && reconnectTimer === null) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            if (active) setReconnectTick(t => t + 1);
+          }, 1000);
+        }
+        return;
+      }
       if (!active || status !== 'SUBSCRIBED') return;
       channelRef.current = ch;
+      // Track inicial: solo identidad. mood/isMuted se envían por broadcast.
       const result = await ch.track({
         displayName: userProfile.displayName,
         photoURL: userProfile.photoURL,
         joinedAt: joinedAtRef.current,
-        mood: moodRef.current,
-        isMuted: mutedRef.current,
       });
       console.log('[DIAG subscribe] track inicial result:', result);
+      // Si tenemos mood/isMuted activos (reconexión), broadcastearlos para
+      // que los peers existentes nos vean con el estado correcto.
+      if (moodRef.current !== 'none' || mutedRef.current) {
+        ch.send({
+          type: 'broadcast',
+          event: 'peer-state',
+          payload: {
+            uid: userProfile.uid,
+            mood: moodRef.current,
+            isMuted: mutedRef.current,
+          },
+        });
+      }
     });
 
     setChannel(ch);
 
     return () => {
       active = false;
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       channelRef.current = null;
       ch.untrack();
       supabase.removeChannel(ch);
       setChannel(null);
       setParticipants({});
     };
-  }, [callId, userProfile.uid, userProfile.displayName, userProfile.photoURL]);
+  }, [callId, userProfile.uid, userProfile.displayName, userProfile.photoURL, reconnectTick]);
 
   // 3. Iniciar oferta WebRTC para peers nuevos (regla: uid mayor inicia).
   useEffect(() => {
@@ -298,27 +396,30 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     return () => clearInterval(id);
   }, [callId]);
 
-  // 5. Sincronizar isMuted al track de presence + al audio track.
-  // Usa channelRef (no el state `channel`) para no dispararse cuando el state
-  // cambia de null→ch durante la suscripción (eso causaba doble-track y acumulación).
+  // 5a. Sincronizar isMuted al track de audio local.
+  //     localStream SÍ está en deps porque necesitamos habilitar/deshabilitar el track.
   useEffect(() => {
     mutedRef.current = isMuted;
-    console.log('[DIAG effect5] isMuted:', isMuted, '| channelRef:', channelRef.current ? 'ok' : 'null');
     if (localStream) {
       const track = localStream.getAudioTracks()[0];
       if (track) track.enabled = !isMuted;
     }
+  }, [isMuted, localStream]);
+
+  // 5b. Broadcast del estado dinámico (mute) cuando cambia.
+  useEffect(() => {
     const ch = channelRef.current;
-    if (ch) {
-      ch.track({
-        displayName: userProfile.displayName,
-        photoURL: userProfile.photoURL,
-        joinedAt: joinedAtRef.current,
+    if (!ch) return;
+    ch.send({
+      type: 'broadcast',
+      event: 'peer-state',
+      payload: {
+        uid: userProfile.uid,
         mood: moodRef.current,
         isMuted,
-      }).then(r => console.log('[DIAG effect5] track result:', r));
-    }
-  }, [isMuted, localStream, userProfile.displayName, userProfile.photoURL]);
+      },
+    }).then(r => console.log('[DIAG 5b] send result:', r));
+  }, [isMuted, userProfile.uid]);
 
   // 6. Atajos de teclado.
   useEffect(() => {
@@ -336,15 +437,17 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     moodRef.current = newMood;
     const ch = channelRef.current;
     if (ch) {
-      ch.track({
-        displayName: userProfile.displayName,
-        photoURL: userProfile.photoURL,
-        joinedAt: joinedAtRef.current,
-        mood: newMood,
-        isMuted: mutedRef.current,
+      ch.send({
+        type: 'broadcast',
+        event: 'peer-state',
+        payload: {
+          uid: userProfile.uid,
+          mood: newMood,
+          isMuted: mutedRef.current,
+        },
       });
     }
-  }, [currentMood, userProfile.displayName, userProfile.photoURL]);
+  }, [currentMood, userProfile.uid]);
 
   const handleVolumeChange = (uid: string, volume: number) => {
     setLocalVolumes(prev => ({ ...prev, [uid]: volume }));
@@ -435,16 +538,24 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
 
       <main className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 content-start">
         <AnimatePresence>
-          {Object.values(participants).map((p: Participant) => (
-            <ParticipantCard
-              key={p.uid}
-              participant={p}
-              stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
-              isLocal={p.uid === userProfile.uid}
-              volume={localVolumes[p.uid]}
-              onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
-            />
-          ))}
+          {Object.values(participants).map((p: Participant) => {
+            // Para nuestra propia tarjeta usamos el estado local de mood/mute
+            // (es la fuente de verdad). Para peers remotos, lo que tengamos
+            // en participants[uid] viene del broadcast.
+            const display: Participant = p.uid === userProfile.uid
+              ? { ...p, mood: currentMood, isMuted }
+              : p;
+            return (
+              <ParticipantCard
+                key={p.uid}
+                participant={display}
+                stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+                isLocal={p.uid === userProfile.uid}
+                volume={localVolumes[p.uid]}
+                onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+              />
+            );
+          })}
         </AnimatePresence>
       </main>
 

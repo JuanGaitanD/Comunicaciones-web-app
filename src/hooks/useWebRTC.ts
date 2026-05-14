@@ -16,7 +16,11 @@ const ICE_SERVERS: RTCConfiguration = {
 export function useWebRTC(
   callId: string | null,
   userId: string | null,
-  channel: RealtimeChannel | null
+  channel: RealtimeChannel | null,
+  // Clave estable (uids ordenados unidos por coma) de los participantes vivos.
+  // Se usa para cerrar PeerConnections cuando un peer sale. Es string (no array)
+  // para evitar re-disparos por identidad: solo cambia si entra/sale alguien.
+  peerUidsKey: string
 ) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{ [uid: string]: MediaStream }>({});
@@ -50,6 +54,27 @@ export function useWebRTC(
       setLocalStream(null);
     };
   }, [callId]);
+
+  // Cuando un peer desaparece de la lista de participantes vivos, cerrar
+  // su RTCPeerConnection y eliminar su MediaStream remoto. Sin esto, cerrar
+  // una pestaña dejaría la tarjeta del peer y su conexión vivas en la otra.
+  useEffect(() => {
+    const alive = new Set(peerUidsKey ? peerUidsKey.split(',').filter(Boolean) : []);
+    const toRemove: string[] = [];
+    for (const uid of Object.keys(peerConnections.current)) {
+      if (!alive.has(uid)) toRemove.push(uid);
+    }
+    if (toRemove.length === 0) return;
+    for (const uid of toRemove) {
+      peerConnections.current[uid].close();
+      delete peerConnections.current[uid];
+    }
+    setRemoteStreams((prev) => {
+      const next = { ...prev };
+      for (const uid of toRemove) delete next[uid];
+      return next;
+    });
+  }, [peerUidsKey]);
 
   const sendSignal = useCallback(
     (signal: Signal) => {
