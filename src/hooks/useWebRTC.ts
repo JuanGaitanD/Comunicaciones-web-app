@@ -100,7 +100,9 @@ export function useWebRTC(
       };
 
       pc.ontrack = (event) => {
-        setRemoteStreams((prev) => ({ ...prev, [peerUid]: event.streams[0] }));
+        if (event.streams.length > 0) {
+          setRemoteStreams((prev) => ({ ...prev, [peerUid]: event.streams[0] }));
+        }
       };
 
       pc.onconnectionstatechange = () => {
@@ -132,24 +134,24 @@ export function useWebRTC(
       let pc = peerConnections.current[signal.from];
       if (!pc) pc = createPeerConnection(signal.from);
 
-      if (signal.type === 'offer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        sendSignal({
-          from: userId,
-          to: signal.from,
-          type: 'answer',
-          data: JSON.stringify(answer),
-        });
-      } else if (signal.type === 'answer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
-      } else if (signal.type === 'candidate') {
-        try {
+      try {
+        if (signal.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendSignal({
+            from: userId,
+            to: signal.from,
+            type: 'answer',
+            data: JSON.stringify(answer),
+          });
+        } else if (signal.type === 'answer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)));
+        } else if (signal.type === 'candidate') {
           await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(signal.data)));
-        } catch (err) {
-          console.warn('Error añadiendo ICE candidate:', err);
         }
+      } catch (err) {
+        console.warn('Error procesando señal WebRTC:', err);
       }
     },
     [userId, createPeerConnection, sendSignal]
@@ -168,15 +170,19 @@ export function useWebRTC(
   const initiateCall = useCallback(
     async (targetUid: string) => {
       if (!userId || !localStreamRef.current) return;
-      const pc = createPeerConnection(targetUid);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendSignal({
-        from: userId,
-        to: targetUid,
-        type: 'offer',
-        data: JSON.stringify(offer),
-      });
+      try {
+        const pc = createPeerConnection(targetUid);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({
+          from: userId,
+          to: targetUid,
+          type: 'offer',
+          data: JSON.stringify(offer),
+        });
+      } catch (err) {
+        console.error('Error iniciando llamada WebRTC:', err);
+      }
     },
     [userId, createPeerConnection, sendSignal]
   );

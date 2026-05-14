@@ -25,6 +25,19 @@ const MOODS: { type: Mood; emoji: string; label: string }[] = [
 
 const HEARTBEAT_MS = 60_000;
 
+/** Shape mínima que esperamos del payload postgres_changes de la tabla `calls`. */
+interface CallRow {
+  status: 'active' | 'ended';
+  name?: string;
+}
+
+/** Shape del slot de presencia que el SDK de Supabase almacena para cada participante. */
+interface PresenceItem {
+  displayName: string;
+  photoURL: string;
+  joinedAt: string;
+}
+
 function ParticipantCard({
   participant,
   stream,
@@ -42,15 +55,20 @@ function ParticipantCard({
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
-    if (audioRef.current && stream && !isLocal) {
-      audioRef.current.srcObject = stream;
-      audioRef.current.volume = volume ?? 1;
+    const el = audioRef.current;
+    if (el && stream && !isLocal) {
+      el.srcObject = stream;
+      el.volume = volume ?? 1;
       // Chrome bloquea autoplay del <audio> cuando el stream también está
       // conectado a un AudioContext (useAudioLevel). Forzar play.
-      audioRef.current.play().catch((err) => {
+      el.play().catch((err) => {
         console.warn('No se pudo reproducir audio remoto:', err);
       });
     }
+    return () => {
+      // Liberar la referencia al MediaStream para que el GC pueda recogerlo.
+      if (el) el.srcObject = null;
+    };
   }, [stream, isLocal, volume]);
 
   return (
@@ -138,6 +156,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   // la creación de un canal nuevo (con backoff de 1s). El estado local de
   // mood/mute se preserva entre reconexiones para no perder cambios recientes.
   const [reconnectTick, setReconnectTick] = useState(0);
+  const [isEndingCall, setIsEndingCall] = useState(false);
 
   const joinedAtRef = useRef<string>(new Date().toISOString());
   const moodRef = useRef<Mood>('none');
@@ -192,7 +211,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
         (payload) => {
-          const row = payload.new as any;
+          const row = payload.new as CallRow;
           if (row.status === 'ended') onLeave();
           if (row.name) setCallName(row.name);
         }
@@ -238,7 +257,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
       setParticipants(prev => {
         const next: { [uid: string]: Participant } = {};
         for (const [uid, items] of Object.entries(state)) {
-          const arr = items as any[];
+          const arr = items as unknown as PresenceItem[];
           const item = arr[arr.length - 1];
           if (!item) continue;
           currentUids.add(uid);
@@ -255,7 +274,6 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         }
         return next;
       });
-      console.log('[DIAG sync] uids:', [...currentUids].map(u => u.slice(0,8)).join(','));
       // Detectar peers nuevos respecto al último sync de ESTE canal.
       // Si entró alguien nuevo, broadcasteamos nuestro estado para que nos
       // vea con el mood/isMuted correcto en lugar de los defaults.
@@ -288,7 +306,6 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         mood: Mood;
         isMuted: boolean;
       };
-      console.log('[DIAG broadcast peer-state]', uid.slice(0,8), 'mood:', mood, 'isMuted:', isMuted);
       // Solo aplicamos para peers remotos. Nuestro propio estado lo
       // controlamos localmente con isMuted/currentMood.
       if (uid === userProfile.uid) return;
@@ -314,7 +331,6 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     ch.subscribe(async (status) => {
-      console.log('[DIAG subscribe] status:', status, '| active:', active);
       // Si el canal se cerró inesperadamente desde el servidor, limpiar la ref
       // para que Effect 5 no intente trackear sobre un canal muerto → timed out.
       if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
@@ -335,7 +351,6 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         photoURL: userProfile.photoURL,
         joinedAt: joinedAtRef.current,
       });
-      console.log('[DIAG subscribe] track inicial result:', result);
       // Si tenemos mood/isMuted activos (reconexión), broadcastearlos para
       // que los peers existentes nos vean con el estado correcto.
       if (moodRef.current !== 'none' || mutedRef.current) {
@@ -418,7 +433,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         mood: moodRef.current,
         isMuted,
       },
-    }).then(r => console.log('[DIAG 5b] send result:', r));
+    });
   }, [isMuted, userProfile.uid]);
 
   // 6. Atajos de teclado.
@@ -449,9 +464,9 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     }
   }, [currentMood, userProfile.uid]);
 
-  const handleVolumeChange = (uid: string, volume: number) => {
+  const handleVolumeChange = useCallback((uid: string, volume: number) => {
     setLocalVolumes(prev => ({ ...prev, [uid]: volume }));
-  };
+  }, []);
 
   const handleLeaveClick = () => {
     if (userProfile.uid === creatorId) {
@@ -462,12 +477,15 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   };
 
   const handleEndCallForAll = async () => {
+    if (isEndingCall) return;
+    setIsEndingCall(true);
     const { error } = await supabase
       .from('calls')
       .update({ status: 'ended', ended_at: new Date().toISOString() })
       .eq('id', callId);
     if (error) {
       console.error('Error cerrando llamada:', error);
+      setIsEndingCall(false);
       return;
     }
     onLeave();
@@ -500,9 +518,10 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
               <div className="grid grid-cols-1 gap-3">
                 <button
                   onClick={handleEndCallForAll}
-                  className="w-full py-4 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                  disabled={isEndingCall}
+                  className="w-full py-4 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Terminar para todos
+                  {isEndingCall ? 'Terminando...' : 'Terminar para todos'}
                 </button>
                 <button
                   onClick={onLeave}
