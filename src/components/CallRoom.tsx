@@ -205,10 +205,12 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
 
     ch.on('presence', { event: 'sync' }, () => {
       const state = ch.presenceState();
+      console.log('[DIAG sync] presenceState completo:', JSON.stringify(state));
       const next: { [uid: string]: Participant } = {};
       for (const [uid, items] of Object.entries(state)) {
         const arr = items as any[];
         const item = arr[arr.length - 1];
+        console.log(`[DIAG sync] uid=${uid.slice(0,8)} entries=${arr.length} isMuted=${item?.isMuted} mood=${item?.mood}`);
         if (!item) continue;
         next[uid] = {
           uid,
@@ -242,15 +244,17 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
     let active = true;
 
     ch.subscribe(async (status) => {
+      console.log('[DIAG subscribe] status:', status, '| active:', active);
       if (!active || status !== 'SUBSCRIBED') return;
       channelRef.current = ch;
-      await ch.track({
+      const result = await ch.track({
         displayName: userProfile.displayName,
         photoURL: userProfile.photoURL,
         joinedAt: joinedAtRef.current,
         mood: moodRef.current,
         isMuted: mutedRef.current,
       });
+      console.log('[DIAG subscribe] track inicial result:', result);
     });
 
     setChannel(ch);
@@ -299,6 +303,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   // cambia de null→ch durante la suscripción (eso causaba doble-track y acumulación).
   useEffect(() => {
     mutedRef.current = isMuted;
+    console.log('[DIAG effect5] isMuted:', isMuted, '| channelRef:', channelRef.current ? 'ok' : 'null');
     if (localStream) {
       const track = localStream.getAudioTracks()[0];
       if (track) track.enabled = !isMuted;
@@ -311,7 +316,7 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
         joinedAt: joinedAtRef.current,
         mood: moodRef.current,
         isMuted,
-      });
+      }).then(r => console.log('[DIAG effect5] track result:', r));
     }
   }, [isMuted, localStream, userProfile.displayName, userProfile.photoURL]);
 
