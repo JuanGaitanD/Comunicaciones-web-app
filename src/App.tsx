@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard';
 import CallRoom from './components/CallRoom';
 import Profile from './components/Profile';
 import DMWindow from './components/DMWindow';
+import { useDMNotifications } from './hooks/useDMNotifications';
 import { UserProfile, FriendWithProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -39,6 +40,21 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [currentDM, setCurrentDM] = useState<FriendWithProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const {
+    unreadByOther,
+    totalUnread,
+    markRead,
+    notifPermission,
+    requestNotificationPermission,
+  } = useDMNotifications(
+    userProfile?.uid ?? null,
+    currentDM?.otherUid ?? null
+  );
+
+  useEffect(() => {
+    if (currentDM) markRead(currentDM.otherUid);
+  }, [currentDM, markRead]);
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -136,6 +152,10 @@ export default function App() {
               onLogout={handleLogout}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onStartDM={(friend) => setCurrentDM(friend)}
+              unreadByOther={unreadByOther}
+              totalUnread={totalUnread}
+              notifPermission={notifPermission}
+              requestNotificationPermission={requestNotificationPermission}
             />
           </motion.div>
         )}

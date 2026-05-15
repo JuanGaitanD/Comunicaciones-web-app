@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, UserPlus, UserCheck, UserX, Users, MessageSquare, UserMinus, Shield, ChevronDown } from 'lucide-react';
+import { X, Search, UserPlus, UserCheck, UserX, Users, MessageSquare, UserMinus, Shield, ChevronDown, Bell } from 'lucide-react';
 import type { FriendWithProfile } from '../types';
 import type { SearchResult } from '../hooks/useFriends';
 import { cn } from '../lib/utils';
@@ -22,6 +22,9 @@ interface FriendsPanelProps {
   cancel: (f: FriendWithProfile) => Promise<void>;
   block: (f: FriendWithProfile) => Promise<void>;
   unblock: (f: FriendWithProfile) => Promise<void>;
+  unreadByOther: Map<string, number>;
+  notifPermission: NotificationPermission | 'unsupported';
+  requestNotificationPermission: () => Promise<void>;
 }
 
 type Tab = 'friends' | 'requests';
@@ -43,6 +46,9 @@ export default function FriendsPanel({
   cancel,
   block,
   unblock,
+  unreadByOther,
+  notifPermission,
+  requestNotificationPermission,
 }: FriendsPanelProps) {
   const [tab, setTab] = useState<Tab>('friends');
   const [query, setQuery] = useState('');
@@ -125,13 +131,25 @@ export default function FriendsPanel({
         <h2 className="text-xl font-bold text-[var(--text)] flex items-center gap-2">
           <Users size={22} className="text-[var(--primary)]" /> Amigos
         </h2>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-xl hover:bg-[var(--accent)] transition-colors text-[var(--muted)]"
-          aria-label="Cerrar"
-        >
-          <X size={20} />
-        </button>
+        <div className="flex items-center gap-1">
+          {notifPermission === 'default' && (
+            <button
+              onClick={requestNotificationPermission}
+              className="p-2 rounded-xl hover:bg-[var(--accent)] transition-colors text-[var(--muted)]"
+              title="Habilitar notificaciones"
+              aria-label="Habilitar notificaciones"
+            >
+              <Bell size={18} />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-[var(--accent)] transition-colors text-[var(--muted)]"
+            aria-label="Cerrar"
+          >
+            <X size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Search */}
@@ -268,10 +286,15 @@ export default function FriendsPanel({
                     <div className="flex gap-2">
                       <button
                         onClick={() => { onStartDM(f); onClose(); }}
-                        className="p-2 rounded-lg bg-[var(--accent)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all"
+                        className="relative p-2 rounded-lg bg-[var(--accent)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all"
                         title="Mensaje"
                       >
                         <MessageSquare size={16} />
+                        {(unreadByOther.get(f.otherUid) ?? 0) > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                            {unreadByOther.get(f.otherUid)}
+                          </span>
+                        )}
                       </button>
                       <button
                         onClick={() => block(f)}

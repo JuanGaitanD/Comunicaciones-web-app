@@ -12,6 +12,10 @@ interface DashboardProps {
   onLogout: () => void;
   onOpenSettings: () => void;
   onStartDM: (friend: FriendWithProfile) => void;
+  unreadByOther: Map<string, number>;
+  totalUnread: number;
+  notifPermission: NotificationPermission | 'unsupported';
+  requestNotificationPermission: () => Promise<void>;
 }
 
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -27,7 +31,17 @@ function rowToCall(row: any): Call {
   };
 }
 
-export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSettings, onStartDM }: DashboardProps) {
+export default function Dashboard({
+  userProfile,
+  onJoinCall,
+  onLogout,
+  onOpenSettings,
+  onStartDM,
+  unreadByOther,
+  totalUnread,
+  notifPermission,
+  requestNotificationPermission,
+}: DashboardProps) {
   const [activeCalls, setActiveCalls] = useState<Call[]>([]);
   const [endedCalls, setEndedCalls] = useState<Call[]>([]);
   const [newCallName, setNewCallName] = useState('');
@@ -121,9 +135,9 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
             aria-label="Amigos"
           >
             <Users size={22} />
-            {received.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                {received.length}
+            {received.length + totalUnread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {received.length + totalUnread}
               </span>
             )}
           </button>
@@ -253,6 +267,9 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
         cancel={cancel}
         block={block}
         unblock={unblock}
+        unreadByOther={unreadByOther}
+        notifPermission={notifPermission}
+        requestNotificationPermission={requestNotificationPermission}
       />
 
       {friendsOpen && (
