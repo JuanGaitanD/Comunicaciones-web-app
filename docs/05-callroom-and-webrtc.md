@@ -82,54 +82,146 @@ Cada cliente activo en la llamada llama `touch_call` cada minuto. Eso mantiene `
 
 ---
 
-## API del hook `useWebRTC` (nueva)
+## API del hook `useWebRTC`
 
 ```ts
 useWebRTC(
   callId: string | null,
   userId: string | null,
-  channel: RealtimeChannel | null
+  channel: RealtimeChannel | null,
+  peerUidsKey: string          // uids ordenados y unidos por coma
 ): {
   localStream: MediaStream | null;
   remoteStreams: { [uid: string]: MediaStream };
   initiateCall: (targetUid: string) => Promise<void>;
+  localScreenStream: MediaStream | null;
+  remoteScreenStreams: { [uid: string]: MediaStream };
+  startScreenShare: () => Promise<void>;
+  stopScreenShare: () => Promise<void>;
 }
 ```
 
 Internamente:
 
-- `localStream` se inicializa con `getUserMedia({ audio: true })` una vez al montar.
-- Para cada peer, crea un `RTCPeerConnection` con `pc.onicecandidate` → `channel.send({event:'signal', payload:{to,from,type:'candidate',data}})`.
-- Escucha `channel.on('broadcast', { event: 'signal' }, ...)` y procesa offers/answers/candidates dirigidos a `userId`.
+- `localStream` — `getUserMedia({ audio: true })` una vez al montar.
+- Para cada peer, `RTCPeerConnection` con `pc.onicecandidate` → `channel.send({event:'signal',...})`.
+- `ontrack` discrimina por `kind`: audio → `remoteStreams`, video → `remoteScreenStreams` (envuelto en `new MediaStream([track])` para consistencia cross-browser).
+- `peerUidsKey`: cuando un uid desaparece de la clave, su `RTCPeerConnection` se cierra y sus streams se limpian.
+
+---
+
+## Screen Sharing (añadido)
+
+### Mecanismo `addTrack` + renegociación manual
+
+No se usan transceivers placeholder — la pista de video se añade on-demand:
+
+```
+Usuario pulsa "Compartir"
+  → getDisplayMedia({ video: true })
+  → para cada pc: pc.addTrack(videoTrack, stream)
+  → renegotiate(peerUid, pc): createOffer → setLocalDescription → send offer broadcast
+  → peer remoto: ontrack (kind=video) → remoteScreenStreams[uid] = new MediaStream([track])
+  → hero layout activa en ambos lados
+```
+
+Al detener:
+```
+pc.removeTrack(sender) → renegotiate → SDP actualizado
+stream.getTracks().forEach(t => t.stop())
+setLocalScreenStream(null) → Effect 5c broadcastea isSharingScreen: false
+```
+
+**Glare protection (lite):** si `pc.signalingState !== 'stable'` al renegociar, se omite el ciclo (otra oferta está en vuelo). Suficiente para el caso de uso P2P.
+
+**`track.onended` listener:** detecta el botón nativo "Detener uso compartido" del navegador → llama `stopScreenShare()` automáticamente.
+
+### Estado de screen share por peer
+
+`isSharingScreen` viaja en el payload de `peer-state` broadcast (igual que `isMuted` y `mood`). El effect 5c en `CallRoom` lo broadcastea de forma reactiva cuando `localScreenStream` cambia:
+
+```ts
+useEffect(() => {
+  const newValue = !!localScreenStream;
+  if (sharingScreenRef.current === newValue) return; // anti-loop
+  sharingScreenRef.current = newValue;
+  channel.send({ event: 'peer-state', payload: { ..., isSharingScreen: newValue } });
+}, [localScreenStream]);
+```
+
+---
+
+## Hero Layout
+
+Cuando `activeSharer !== null` (alguien comparte pantalla), el layout de la llamada cambia:
+
+```
+┌─────────────────────────────────┐ ┌──────────────────┐
+│                                 │ │  Participante 1  │
+│        HeroScreen               │ │  Participante 2  │
+│   <video> a pantalla completa   │ │  Participante 3  │
+│   + overlay: avatar + nombre    │ │  ────────────    │
+│                                 │ │  [Mic] [Share]   │
+└─────────────────────────────────┘ │  [Moods]         │
+           ~75%                     └──────────────────┘
+                                          ~25%
+```
+
+- **`activeSharer`**: `useMemo` — devuelve `userProfile.uid` si `localScreenStream` está activo, o el uid del primer peer con `isSharingScreen: true`, o `null`.
+- **`HeroScreen`**: componente inline con `<video>` + overlay de nombre/avatar del presentador. Muestra placeholder "Cargando pantalla…" si el stream aún no llegó.
+- **`ParticipantCard compact`**: layout horizontal (avatar 40px, sin slider de volumen, sin video duplicado). El audio sigue activo vía `<audio>` oculto.
+- **Controles en sidebar**: mic + screen share + moods se mueven debajo de la lista de participantes (anclados al fondo con `flex-shrink-0`). La lista scrollea independientemente (`flex-1 overflow-y-auto min-h-0`).
+- **Footer**: se oculta en desktop (`md:hidden`) cuando hay hero activo. En móvil permanece visible.
+- **Responsive**: en móvil el hero se apila verticalmente sobre un strip horizontal de participantes.
+
+---
+
+## Sistema de Solicitud de Screen Share
+
+Solo puede haber un presentador activo a la vez. Si alguien intenta compartir mientras otro lo está haciendo:
+
+```
+Usuario B pulsa "Solicitar"
+  → broadcast: screen-share-request { fromUid, fromName }
+  → Usuario A (presentador): popup "B quiere compartir pantalla" + barra 15s
+  → A acepta:
+      stopScreenShare() → broadcast: screen-share-response { toUid: B, accepted: true }
+      B recibe → setPendingAutoStart(true)
+      Effect: pendingAutoStart && !activeSharer → startScreenShare()
+  → A deniega / timeout:
+      broadcast: screen-share-response { toUid: B, accepted: false }
+      B recibe → toast "Solicitud denegada"
+```
+
+**Decisiones de diseño:**
+
+| Decisión | Razón |
+|---|---|
+| `pendingAutoStart` en vez de `setTimeout(500ms)` | Reactivo: espera a que `activeSharer === null` (el stream anterior se liberó), sin asumir latencia de red |
+| Busy guard: segunda solicitud → `accepted: false` inmediato | Evita que una nueva solicitud pise a la primera en el popup del presentador |
+| Presentador para naturalmente → `outgoingShareRequest` se limpia, NO auto-start | El solicitante debe decidir conscientemente volver a presionar "Compartir" |
+| `incomingShareRequestRef` mirror del state | Los handlers de broadcast capturan el ref fresco en closures; el state no es legible fresco dentro de un handler registrado una sola vez |
 
 ---
 
 ## Verificación
 
-1. **Cero subcolecciones**: en Supabase → Table Editor, **no existen** tablas de `participants` ni `signals`. Toda la actividad live va por Realtime.
-2. **Llamada 1-a-1**: dos pestañas/dispositivos, una crea llamada, la otra se une. Ambas se ven en la grilla, audio funciona en ambas direcciones, mute y mood se reflejan en <1 s.
-3. **Llamada grupal 3-5**: tres+ peers, todos se ven entre sí (mesh), audio entre todos.
-4. **Heartbeat**: con la llamada abierta, hacer `select last_active_at from calls where id=...` en el SQL editor cada minuto. Debe avanzar.
-5. **Cierre por creador**: el creador hace "Terminar para todos". Los demás clientes detectan el cambio vía postgres_changes y salen automáticamente al dashboard.
-6. **Salida limpia**: cerrar pestaña sin pulsar "Terminar". Los otros peers ven al usuario desaparecer de Presence en ≤2 s.
+1. **Audio básico**: dos peers, llamada 1-a-1. Audio funcional, mute y mood se reflejan en < 1 s.
+2. **Screen share básico**: A comparte. B ve el hero layout con el video de A. A para; layout vuelve a grid.
+3. **Peer entra mid-share**: A comparte, C entra. C ve el hero desde el primer momento (track añadido al crear la PC si `screenStreamRef.current` está activo).
+4. **Botón nativo**: A usa "Detener uso compartido" del navegador. `track.onended` dispara `stopScreenShare()`, hero desaparece en todos los peers.
+5. **Solicitud — aceptar**: A comparte, B solicita. A acepta. A deja de compartir, B empieza.
+6. **Solicitud — denegar / timeout**: B ve toast "Solicitud denegada".
+7. **Busy**: A comparte, B y C solicitan simultáneamente. Solo B llega al popup de A; C recibe denegación inmediata.
+8. **Presentador sale**: A comparte, B solicitó. A cierra pestaña. `activeSharer` → null, `outgoingShareRequest` se limpia (Effect 9b). B puede presionar "Compartir" manualmente.
+9. **Scroll sidebar**: 8+ participantes en llamada hero. Lista scrollea, controles permanecen fijos al fondo.
+10. **TypeScript**: `npx tsc --noEmit` limpio.
 
 ---
 
-## Resultado
+## Resultado final
 
-Hecho:
-
-- ✅ `src/hooks/useWebRTC.ts` reescrito de cero. API nueva: `useWebRTC(callId, userId, channel)`. Ya no toca DB en absoluto. Toda la señalización va por `channel.send({event:'signal'})` y se recibe vía `channel.on('broadcast', {event:'signal'})`. Filtrado por `payload.to === userId` en cliente. Manejo de `connectionstatechange` añadido para limpiar `remoteStreams` cuando un peer se desconecta.
-- ✅ `src/components/CallRoom.tsx` reescrito. Cinco efectos limpios:
-  1. Cargar info inicial + suscribirse a `postgres_changes` sobre la fila `calls` (detectar `status='ended'`).
-  2. Crear canal Realtime con Presence + Broadcast; `track()` al suscribirse.
-  3. Iniciar oferta WebRTC para peers nuevos (regla "uid mayor inicia" evita glare).
-  4. Heartbeat `touch_call(callId)` cada 60 s.
-  5. Sincronizar `isMuted` al audio track + re-track presence.
-- ✅ Mood / mute updates → `channel.track({...})`. Cero escrituras a DB.
-- ✅ Cierre "Terminar para todos" → `update calls set status='ended'`. Los demás clientes lo detectan vía postgres_changes y `onLeave` automáticamente.
-- ✅ Salida normal → cleanup del effect del canal hace `untrack()` + `removeChannel()`. Presence elimina la entrada en ≤2 s para todos los demás.
-- ✅ `npm run lint` pasa sin errores.
-- ✅ Vite HMR detectó cambios sin errores.
-
-Estado del proyecto en este punto: la app entera funciona sobre Supabase salvo `Profile.tsx` (paso 06) y los imports vestigiales de `firebase.ts` (paso 07).
+- ✅ `src/hooks/useWebRTC.ts`: screen share con `addTrack`/`removeTrack` + renegociación manual. `ontrack` discriminado por `kind`. `peerUidsKey` para cleanup reactivo de peers desaparecidos.
+- ✅ `src/components/CallRoom.tsx`: hero layout automático, `ParticipantCard` con modo `compact`, componente `HeroScreen`, sistema de solicitud con `pendingAutoStart` reactivo, controles anclados al fondo de sidebar.
+- ✅ `src/types.ts`: `Participant.isSharingScreen` añadido.
+- ✅ Todos los cambios pasan `tsc --noEmit` sin errores.
