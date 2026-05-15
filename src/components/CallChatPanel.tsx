@@ -88,7 +88,7 @@ export default function CallChatPanel({
       </div>
 
       {/* Lista */}
-      <div className="flex-1 flex flex-col-reverse overflow-y-auto p-4 gap-2">
+      <div className="flex-1 flex flex-col-reverse overflow-y-auto p-4 gap-2 scrollbar-thin">
         {loading ? (
           <p className="text-sm text-[var(--muted)] text-center py-8">Cargando mensajes...</p>
         ) : messages.length === 0 ? (
@@ -147,7 +147,7 @@ export default function CallChatPanel({
             placeholder="Escribe un mensaje..."
             rows={1}
             maxLength={4000}
-            className="flex-1 resize-none px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-sm leading-snug"
+            className="flex-1 resize-none px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-sm leading-snug scrollbar-thin"
           />
           <button
             onClick={handleSend}

@@ -285,7 +285,7 @@ export default function FriendsPanel({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
         {loading ? (
           <p className="text-sm text-[var(--muted)] text-center py-8">Cargando...</p>
         ) : tab === 'friends' ? (
