@@ -57,6 +57,7 @@ function ParticipantCard({
   friendRelation,
   onSendFriendRequest,
   friendRequestPending,
+  compact,
 }: {
   participant: Participant;
   stream: MediaStream | null;
@@ -69,12 +70,14 @@ function ParticipantCard({
   friendRelation?: FriendRelation;
   onSendFriendRequest?: () => void;
   friendRequestPending?: boolean;
+  compact?: boolean;
 }) {
   const audioLevel = useAudioLevel(stream);
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const showingScreen = !!(participant.isSharingScreen && screenStream);
+  // En modo compact el hero ya muestra el video — no duplicar.
+  const showingScreen = !compact && !!(participant.isSharingScreen && screenStream);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -93,18 +96,63 @@ function ParticipantCard({
     if (el && stream && !isLocal) {
       el.srcObject = stream;
       el.volume = isMutedByListener ? 0 : (volume ?? 1);
-      // Chrome bloquea autoplay del <audio> cuando el stream también está
-      // conectado a un AudioContext (useAudioLevel). Forzar play.
       el.play().catch((err) => {
         console.warn('No se pudo reproducir audio remoto:', err);
       });
     }
     return () => {
-      // Liberar la referencia al MediaStream para que el GC pueda recogerlo.
       if (el) el.srcObject = null;
     };
   }, [stream, isLocal, volume, isMutedByListener]);
 
+  /* ─── Modo compacto: layout horizontal reducido para sidebar ─── */
+  if (compact) {
+    return (
+      <motion.div
+        layout
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="card p-3 flex items-center gap-3 relative"
+      >
+        <div className="relative flex-shrink-0">
+          <img
+            src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
+            alt={participant.displayName}
+            referrerPolicy="no-referrer"
+            className={cn(
+              "w-10 h-10 rounded-full border-2 transition-all duration-300",
+              !participant.isMuted && audioLevel > 0.1 ? "border-[var(--primary)]" : "border-[var(--border)]"
+            )}
+          />
+          {participant.mood !== 'none' && (
+            <span className="absolute -top-1 -right-1 text-sm bg-[var(--card)] rounded-full shadow-sm z-10">
+              {MOODS.find(m => m.type === participant.mood)?.emoji}
+            </span>
+          )}
+          {participant.isMuted && (
+            <div className="absolute -bottom-0.5 -right-0.5 bg-red-500 text-white p-0.5 rounded-full border border-[var(--card)] z-10">
+              <MicOff size={8} />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <h3 className="font-semibold text-sm text-[var(--text)] truncate">{participant.displayName}</h3>
+            {participant.isSharingScreen && (
+              <Monitor size={12} className="text-[var(--primary)] flex-shrink-0" />
+            )}
+          </div>
+          <p className="text-[10px] text-[var(--muted)] capitalize truncate">
+            {participant.isMuted ? 'En silencio' : (participant.mood === 'none' ? 'Conectado' : participant.mood)}
+          </p>
+        </div>
+        {!isLocal && <audio ref={audioRef} autoPlay style={{ display: 'none' }} />}
+      </motion.div>
+    );
+  }
+
+  /* ─── Modo normal: layout vertical completo ─── */
   return (
     <motion.div
       layout
@@ -226,6 +274,66 @@ function ParticipantCard({
   );
 }
 
+/** Hero: video grande del screen share activo, con overlay del presentador. */
+function HeroScreen({
+  participant,
+  screenStream,
+  isLocal,
+}: {
+  participant: Participant;
+  screenStream: MediaStream | null;
+  isLocal: boolean;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !screenStream) return;
+    el.srcObject = screenStream;
+    el.play().catch((err) => console.warn('No se pudo reproducir hero screen share:', err));
+    return () => { if (el) el.srcObject = null; };
+  }, [screenStream]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      className="relative w-full h-full min-h-[280px] rounded-2xl overflow-hidden bg-black"
+    >
+      {screenStream ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={isLocal}
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-white/50 text-sm">
+          <Monitor size={20} className="mr-2" />
+          Cargando pantalla…
+        </div>
+      )}
+      {/* Overlay inferior con info del presentador */}
+      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent p-4 pt-8 flex items-center gap-3">
+        <img
+          src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
+          alt={participant.displayName}
+          referrerPolicy="no-referrer"
+          className="w-8 h-8 rounded-full border-2 border-white/30"
+        />
+        <div>
+          <span className="text-white text-sm font-semibold">{participant.displayName}</span>
+          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-white/60">
+            Compartiendo pantalla
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function CallRoom({ callId, userProfile, onLeave, friends, sent, sendFriendRequest }: CallRoomProps) {
   const [participants, setParticipants] = useState<{ [uid: string]: Participant }>({});
   const [isMuted, setIsMuted] = useState(false);
@@ -248,6 +356,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const [callInviteCode, setCallInviteCode] = useState<string | null>(null);
   const [localMuted, setLocalMuted] = useState<{ [uid: string]: boolean }>({});
   const [toast, setToast] = useState<string | null>(null);
+  // Sistema de solicitud de screen share
+  const [incomingShareRequest, setIncomingShareRequest] = useState<{ fromUid: string; fromName: string } | null>(null);
+  const [outgoingShareRequest, setOutgoingShareRequest] = useState(false);
+  const [pendingAutoStart, setPendingAutoStart] = useState(false);
 
   const { messages: chatMessages, loading: chatLoading, send: sendChatMessage } = useCallMessages(callId, userProfile.uid);
 
@@ -303,6 +415,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   // broadcastea cuando difiere, cubriendo el toggle manual, el botón nativo
   // del navegador (track.onended) y el cleanup al salir, en un solo lugar.
   const sharingScreenRef = useRef<boolean>(false);
+  // Mirror ref de incomingShareRequest para leerlo dentro de closures de broadcast
+  // (el state no se lee fresco dentro del handler registrado en el effect).
+  const incomingShareRequestRef = useRef<{ fromUid: string; fromName: string } | null>(null);
+  const shareRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const knownPeersRef = useRef<Set<string>>(new Set());
   // presenceUidsRef: uids vistos en el último sync. Sirve para detectar
   // peers nuevos y broadcastear nuestro estado dinámico (mood/isMuted) a
@@ -330,6 +446,13 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     startScreenShare,
     stopScreenShare,
   } = useWebRTC(callId, userProfile.uid, channel, peerUidsKey);
+
+  // UID del participante que está compartiendo pantalla (o null). Se usa para
+  // condicionar el hero layout y bloquear nuevos shares sin solicitud.
+  const activeSharer = useMemo(() => {
+    if (localScreenStream) return userProfile.uid;
+    return Object.values(participants).find(p => p.isSharingScreen)?.uid ?? null;
+  }, [participants, localScreenStream, userProfile.uid]);
 
   // 1. Cargar info de la llamada inicial y suscribirse a cambios de su fila.
   useEffect(() => {
@@ -475,6 +598,48 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
       });
     });
 
+    // Broadcast: solicitud de screen share — solo la procesa el presentador actual.
+    ch.on('broadcast', { event: 'screen-share-request' }, ({ payload }) => {
+      const { fromUid, fromName } = payload as { fromUid: string; fromName: string };
+      if (!sharingScreenRef.current) return; // no soy el presentador
+
+      // Si ya tengo una solicitud pendiente → denegar inmediatamente la nueva.
+      if (incomingShareRequestRef.current) {
+        ch.send({
+          type: 'broadcast',
+          event: 'screen-share-response',
+          payload: { toUid: fromUid, accepted: false },
+        });
+        return;
+      }
+
+      incomingShareRequestRef.current = { fromUid, fromName };
+      setIncomingShareRequest({ fromUid, fromName });
+      if (shareRequestTimerRef.current) clearTimeout(shareRequestTimerRef.current);
+      shareRequestTimerRef.current = setTimeout(() => {
+        incomingShareRequestRef.current = null;
+        setIncomingShareRequest(null);
+        ch.send({
+          type: 'broadcast',
+          event: 'screen-share-response',
+          payload: { toUid: fromUid, accepted: false },
+        });
+      }, 15000);
+    });
+
+    // Broadcast: respuesta a solicitud de screen share — solo la procesa el solicitante.
+    ch.on('broadcast', { event: 'screen-share-response' }, ({ payload }) => {
+      const { toUid, accepted } = payload as { toUid: string; accepted: boolean };
+      if (toUid !== userProfile.uid) return;
+      setOutgoingShareRequest(false);
+      if (accepted) {
+        setPendingAutoStart(true);
+      } else {
+        setToast('Solicitud denegada');
+        setTimeout(() => setToast(null), 2500);
+      }
+    });
+
     // No registramos handler de 'leave' explícito:
     // - Cada untrack()+track() genera un leave seguido de sync; si borrásemos
     //   al participante en el leave, habría un flash visual y se reiniciaría WebRTC.
@@ -535,6 +700,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
       if (reconnectTimer !== null) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
+      }
+      if (shareRequestTimerRef.current) {
+        clearTimeout(shareRequestTimerRef.current);
+        shareRequestTimerRef.current = null;
       }
       channelRef.current = null;
       ch.untrack();
@@ -659,15 +828,89 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   }, []);
 
   const handleToggleScreenShare = useCallback(async () => {
-    // No actualizamos sharingScreenRef ni broadcasteamos aquí: el effect 5c lo
-    // hace en función de localScreenStream, cubriendo también el caso del
-    // botón nativo del navegador.
+    // Si ya estoy compartiendo → parar.
     if (sharingScreenRef.current) {
       await stopScreenShare();
-    } else {
-      await startScreenShare();
+      return;
     }
-  }, [startScreenShare, stopScreenShare]);
+    // Si alguien más está compartiendo → enviar solicitud en vez de iniciar.
+    if (activeSharer && activeSharer !== userProfile.uid) {
+      if (outgoingShareRequest) return; // ya hay una solicitud pendiente
+      setOutgoingShareRequest(true);
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'screen-share-request',
+        payload: { fromUid: userProfile.uid, fromName: userProfile.displayName },
+      });
+      return;
+    }
+    // Nadie comparte → iniciar directo.
+    await startScreenShare();
+  }, [startScreenShare, stopScreenShare, activeSharer, userProfile, outgoingShareRequest]);
+
+  const handleAcceptShareRequest = useCallback(async () => {
+    if (!incomingShareRequest) return;
+    const requesterUid = incomingShareRequest.fromUid;
+    incomingShareRequestRef.current = null;
+    setIncomingShareRequest(null);
+    if (shareRequestTimerRef.current) {
+      clearTimeout(shareRequestTimerRef.current);
+      shareRequestTimerRef.current = null;
+    }
+    // Parar mi share primero
+    await stopScreenShare();
+    // Notificar al solicitante que puede arrancar
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'screen-share-response',
+      payload: { toUid: requesterUid, accepted: true },
+    });
+  }, [incomingShareRequest, stopScreenShare]);
+
+  const handleDenyShareRequest = useCallback(() => {
+    if (!incomingShareRequest) return;
+    const requesterUid = incomingShareRequest.fromUid;
+    incomingShareRequestRef.current = null;
+    setIncomingShareRequest(null);
+    if (shareRequestTimerRef.current) {
+      clearTimeout(shareRequestTimerRef.current);
+      shareRequestTimerRef.current = null;
+    }
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'screen-share-response',
+      payload: { toUid: requesterUid, accepted: false },
+    });
+  }, [incomingShareRequest]);
+
+  // Effect: pendingAutoStart reactivo — arranca screen share cuando el slot se libera
+  // tras aceptación explícita del presentador anterior.
+  useEffect(() => {
+    if (pendingAutoStart && !activeSharer) {
+      setPendingAutoStart(false);
+      startScreenShare();
+    }
+  }, [pendingAutoStart, activeSharer, startScreenShare]);
+
+  // Effect: limpiar solicitud saliente si el slot se libera sin aceptación.
+  // El presentador paró de compartir naturalmente → no auto-iniciar.
+  useEffect(() => {
+    if (outgoingShareRequest && !activeSharer) {
+      setOutgoingShareRequest(false);
+    }
+  }, [outgoingShareRequest, activeSharer]);
+
+  // Effect: limpiar solicitud entrante si el solicitante sale de la llamada.
+  useEffect(() => {
+    if (incomingShareRequest && !participants[incomingShareRequest.fromUid]) {
+      incomingShareRequestRef.current = null;
+      setIncomingShareRequest(null);
+      if (shareRequestTimerRef.current) {
+        clearTimeout(shareRequestTimerRef.current);
+        shareRequestTimerRef.current = null;
+      }
+    }
+  }, [incomingShareRequest, participants]);
 
   const handleLeaveClick = () => {
     if (userProfile.uid === creatorId) {
@@ -808,34 +1051,84 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         </div>
       </header>
 
-      <main className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 content-start">
-        <AnimatePresence>
-          {Object.values(participants).map((p: Participant) => {
-            // Para nuestra propia tarjeta usamos el estado local de mood/mute
-            // (es la fuente de verdad). Para peers remotos, lo que tengamos
-            // en participants[uid] viene del broadcast.
-            const display: Participant = p.uid === userProfile.uid
-              ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
-              : p;
-            return (
-              <ParticipantCard
-                key={p.uid}
-                participant={display}
-                stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
-                screenStream={p.uid === userProfile.uid ? localScreenStream : remoteScreenStreams[p.uid]}
-                isLocal={p.uid === userProfile.uid}
-                volume={localVolumes[p.uid]}
-                onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
-                isMutedByListener={localMuted[p.uid] ?? false}
-                onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
-                friendRelation={friendRelationOf(p.uid)}
-                onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
-                friendRequestPending={friendRequestPending.has(p.uid)}
-              />
-            );
-          })}
-        </AnimatePresence>
-      </main>
+      {activeSharer ? (
+        /* ─── Hero layout: screen share en primer plano + sidebar compacta ─── */
+        <main className="flex-1 flex flex-col md:flex-row gap-4">
+          {/* Hero: video grande */}
+          <div className="flex-1 min-w-0">
+            <AnimatePresence mode="wait">
+              {(() => {
+                const sharerP = participants[activeSharer];
+                if (!sharerP) return null;
+                const displaySharer: Participant = activeSharer === userProfile.uid
+                  ? { ...sharerP, mood: currentMood, isMuted, isSharingScreen: true }
+                  : sharerP;
+                return (
+                  <HeroScreen
+                    key={activeSharer}
+                    participant={displaySharer}
+                    screenStream={activeSharer === userProfile.uid ? localScreenStream : remoteScreenStreams[activeSharer]}
+                    isLocal={activeSharer === userProfile.uid}
+                  />
+                );
+              })()}
+            </AnimatePresence>
+          </div>
+          {/* Sidebar: participantes compactos */}
+          <div className="md:w-72 flex md:flex-col flex-row gap-3 md:overflow-y-auto overflow-x-auto scrollbar-thin md:max-h-[calc(100vh-16rem)]">
+            <AnimatePresence>
+              {Object.values(participants).map((p: Participant) => {
+                const display: Participant = p.uid === userProfile.uid
+                  ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
+                  : p;
+                return (
+                  <ParticipantCard
+                    key={p.uid}
+                    participant={display}
+                    stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+                    isLocal={p.uid === userProfile.uid}
+                    volume={localVolumes[p.uid]}
+                    onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+                    isMutedByListener={localMuted[p.uid] ?? false}
+                    onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
+                    friendRelation={friendRelationOf(p.uid)}
+                    onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
+                    friendRequestPending={friendRequestPending.has(p.uid)}
+                    compact
+                  />
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        </main>
+      ) : (
+        /* ─── Grid plano: nadie comparte pantalla ─── */
+        <main className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 content-start">
+          <AnimatePresence>
+            {Object.values(participants).map((p: Participant) => {
+              const display: Participant = p.uid === userProfile.uid
+                ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
+                : p;
+              return (
+                <ParticipantCard
+                  key={p.uid}
+                  participant={display}
+                  stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+                  screenStream={p.uid === userProfile.uid ? localScreenStream : remoteScreenStreams[p.uid]}
+                  isLocal={p.uid === userProfile.uid}
+                  volume={localVolumes[p.uid]}
+                  onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+                  isMutedByListener={localMuted[p.uid] ?? false}
+                  onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
+                  friendRelation={friendRelationOf(p.uid)}
+                  onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
+                  friendRequestPending={friendRequestPending.has(p.uid)}
+                />
+              );
+            })}
+          </AnimatePresence>
+        </main>
+      )}
 
       <footer className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 p-4 card">
         <div className="flex items-center gap-2">
@@ -852,17 +1145,37 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           </button>
           <button
             onClick={handleToggleScreenShare}
+            disabled={outgoingShareRequest}
             className={cn(
               "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
               localScreenStream
                 ? "bg-[var(--primary)] text-white"
-                : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
+                : outgoingShareRequest
+                  ? "bg-amber-100 text-amber-700 animate-pulse"
+                  : activeSharer
+                    ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                    : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
             )}
-            aria-label={localScreenStream ? "Detener compartir pantalla" : "Compartir pantalla"}
-            title={localScreenStream ? "Detener compartir pantalla" : "Compartir pantalla"}
+            aria-label={
+              localScreenStream ? "Detener compartir pantalla"
+                : outgoingShareRequest ? "Solicitando..."
+                  : activeSharer ? "Solicitar compartir pantalla"
+                    : "Compartir pantalla"
+            }
+            title={
+              localScreenStream ? "Detener compartir pantalla"
+                : outgoingShareRequest ? "Esperando respuesta..."
+                  : activeSharer ? "Solicitar compartir pantalla"
+                    : "Compartir pantalla"
+            }
           >
             {localScreenStream ? <MonitorOff size={24} /> : <Monitor size={24} />}
-            <span className="hidden sm:inline">{localScreenStream ? 'Compartiendo' : 'Compartir'}</span>
+            <span className="hidden sm:inline">
+              {localScreenStream ? 'Compartiendo'
+                : outgoingShareRequest ? 'Solicitando...'
+                  : activeSharer ? 'Solicitar'
+                    : 'Compartir'}
+            </span>
           </button>
         </div>
 
@@ -897,6 +1210,54 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         myUid={userProfile.uid}
         participantsMap={participantsMap}
       />
+
+      {/* Popup de solicitud entrante de screen share */}
+      <AnimatePresence>
+        {incomingShareRequest && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+            className="fixed bottom-6 right-6 z-50 card p-5 shadow-2xl max-w-sm space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-100 text-amber-600 rounded-full">
+                <Monitor size={20} />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-[var(--text)]">Solicitud de pantalla</p>
+                <p className="text-xs text-[var(--muted)]">
+                  <span className="font-semibold">{incomingShareRequest.fromName}</span> quiere compartir pantalla
+                </p>
+              </div>
+            </div>
+            {/* Barra de progreso de 15s */}
+            <div className="w-full h-1 bg-[var(--accent)] rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: 15, ease: 'linear' }}
+                className="h-full bg-amber-400 rounded-full"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleAcceptShareRequest}
+                className="flex-1 py-2 px-3 bg-green-500 text-white text-sm font-semibold rounded-xl hover:bg-green-600 transition-colors"
+              >
+                Aceptar
+              </button>
+              <button
+                onClick={handleDenyShareRequest}
+                className="flex-1 py-2 px-3 bg-red-100 text-red-600 text-sm font-semibold rounded-xl hover:bg-red-200 transition-colors"
+              >
+                Denegar
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
