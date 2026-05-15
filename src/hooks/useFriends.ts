@@ -15,6 +15,7 @@ export function useFriends(myUid: string | null) {
   const [friends, setFriends] = useState<FriendWithProfile[]>([]);
   const [received, setReceived] = useState<FriendWithProfile[]>([]);
   const [sent, setSent] = useState<FriendWithProfile[]>([]);
+  const [blocked, setBlocked] = useState<FriendWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
@@ -41,6 +42,7 @@ export function useFriends(myUid: string | null) {
       setFriends([]);
       setReceived([]);
       setSent([]);
+      setBlocked([]);
       setLoading(false);
       return;
     }
@@ -81,6 +83,11 @@ export function useFriends(myUid: string | null) {
     setSent(
       enriched.filter(
         (e) => e.friendship.status === 'pending' && e.friendship.requested_by === myUid
+      )
+    );
+    setBlocked(
+      enriched.filter(
+        (e) => e.friendship.status === 'blocked' && e.friendship.requested_by === myUid
       )
     );
     setLoading(false);
@@ -194,14 +201,40 @@ export function useFriends(myUid: string | null) {
     if (error) throw error;
   }, []);
 
-  const block = useCallback(async (f: FriendWithProfile) => {
+  const block = useCallback(
+    async (f: FriendWithProfile) => {
+      if (!myUid) return;
+      const { error } = await supabase
+        .from('friendships')
+        .update({ status: 'blocked', requested_by: myUid })
+        .eq('user_a_id', f.friendship.user_a_id)
+        .eq('user_b_id', f.friendship.user_b_id);
+      if (error) throw error;
+    },
+    [myUid]
+  );
+
+  const unblock = useCallback(async (f: FriendWithProfile) => {
     const { error } = await supabase
       .from('friendships')
-      .update({ status: 'blocked' })
+      .delete()
       .eq('user_a_id', f.friendship.user_a_id)
       .eq('user_b_id', f.friendship.user_b_id);
     if (error) throw error;
   }, []);
 
-  return { friends, received, sent, loading, searchUsers, sendRequest, accept, reject, cancel, block };
+  return {
+    friends,
+    received,
+    sent,
+    blocked,
+    loading,
+    searchUsers,
+    sendRequest,
+    accept,
+    reject,
+    cancel,
+    block,
+    unblock,
+  };
 }

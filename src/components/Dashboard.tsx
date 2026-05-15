@@ -34,7 +34,7 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
   const [isCreating, setIsCreating] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
 
-  const { friends, received, sent, loading: friendsLoading, searchUsers, sendRequest, accept, reject, cancel, block } = useFriends(userProfile.uid);
+  const { friends, received, sent, blocked, loading: friendsLoading, searchUsers, sendRequest, accept, reject, cancel, block, unblock } = useFriends(userProfile.uid);
 
   const refetch = useCallback(async () => {
     const activeThreshold = new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString();
@@ -244,6 +244,7 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
         friends={friends}
         received={received}
         sent={sent}
+        blocked={blocked}
         loading={friendsLoading}
         searchUsers={searchUsers}
         sendRequest={sendRequest}
@@ -251,6 +252,7 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
         reject={reject}
         cancel={cancel}
         block={block}
+        unblock={unblock}
       />
 
       {friendsOpen && (

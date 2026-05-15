@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, UserPlus, UserCheck, UserX, Users, MessageSquare, UserMinus } from 'lucide-react';
+import { X, Search, UserPlus, UserCheck, UserX, Users, MessageSquare, UserMinus, Shield, ChevronDown } from 'lucide-react';
 import type { FriendWithProfile } from '../types';
 import type { SearchResult } from '../hooks/useFriends';
 import { cn } from '../lib/utils';
@@ -13,6 +13,7 @@ interface FriendsPanelProps {
   friends: FriendWithProfile[];
   received: FriendWithProfile[];
   sent: FriendWithProfile[];
+  blocked: FriendWithProfile[];
   loading: boolean;
   searchUsers: (query: string) => Promise<SearchResult[]>;
   sendRequest: (targetUid: string) => Promise<void>;
@@ -20,6 +21,7 @@ interface FriendsPanelProps {
   reject: (f: FriendWithProfile) => Promise<void>;
   cancel: (f: FriendWithProfile) => Promise<void>;
   block: (f: FriendWithProfile) => Promise<void>;
+  unblock: (f: FriendWithProfile) => Promise<void>;
 }
 
 type Tab = 'friends' | 'requests';
@@ -32,6 +34,7 @@ export default function FriendsPanel({
   friends,
   received,
   sent,
+  blocked,
   loading,
   searchUsers,
   sendRequest,
@@ -39,6 +42,7 @@ export default function FriendsPanel({
   reject,
   cancel,
   block,
+  unblock,
 }: FriendsPanelProps) {
   const [tab, setTab] = useState<Tab>('friends');
   const [query, setQuery] = useState('');
@@ -46,6 +50,7 @@ export default function FriendsPanel({
   const [searchError, setSearchError] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pending, setPending] = useState<Map<string, boolean>>(new Map());
+  const [showBlocked, setShowBlocked] = useState(false);
 
   // Deriva la relación actual en tiempo real desde el estado del hook (no del snapshot del search).
   function liveRelation(uid: string): 'friends' | 'sent' | 'received' | 'none' {
@@ -371,6 +376,69 @@ export default function FriendsPanel({
           </>
         )}
       </div>
+
+      {/* Footer: usuarios bloqueados */}
+      {blocked.length > 0 && (
+        <div className="border-t border-[var(--border)] bg-[var(--accent)]/40 flex-shrink-0">
+          <button
+            onClick={() => setShowBlocked((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Shield size={15} />
+              Usuarios bloqueados ({blocked.length})
+            </span>
+            <motion.span
+              animate={{ rotate: showBlocked ? 180 : 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <ChevronDown size={16} />
+            </motion.span>
+          </button>
+          <AnimatePresence initial={false}>
+            {showBlocked && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="max-h-48 overflow-y-auto px-4 pb-3 space-y-2">
+                  {blocked.map((f) => (
+                    <motion.div
+                      key={f.otherUid}
+                      layout
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="flex items-center gap-3 p-3 bg-[var(--card)] rounded-xl border border-[var(--border)]"
+                    >
+                      <img
+                        src={f.otherProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${f.otherUid}`}
+                        alt={f.otherProfile.displayName}
+                        referrerPolicy="no-referrer"
+                        className="w-9 h-9 rounded-full flex-shrink-0 grayscale"
+                      />
+                      <span className="flex-1 text-sm font-medium text-[var(--text)] truncate">
+                        {f.otherProfile.displayName}
+                      </span>
+                      <button
+                        onClick={async () => {
+                          try { await unblock(f); } catch (err) { console.error('Error desbloqueando:', err); }
+                        }}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-all flex-shrink-0"
+                      >
+                        Desbloquear
+                      </button>
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
     </motion.aside>
   );
 }
