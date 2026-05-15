@@ -5,7 +5,8 @@ import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 import CallRoom from './components/CallRoom';
 import Profile from './components/Profile';
-import { UserProfile } from './types';
+import DMWindow from './components/DMWindow';
+import { UserProfile, FriendWithProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 
 function applyTheme(profile: UserProfile) {
@@ -36,6 +37,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [currentDM, setCurrentDM] = useState<FriendWithProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadProfile = useCallback(async (userId: string) => {
@@ -133,6 +135,7 @@ export default function App() {
               onJoinCall={(id) => setCurrentCallId(id)}
               onLogout={handleLogout}
               onOpenSettings={() => setIsSettingsOpen(true)}
+              onStartDM={(friend) => setCurrentDM(friend)}
             />
           </motion.div>
         )}
@@ -144,6 +147,16 @@ export default function App() {
             userProfile={userProfile}
             onClose={() => setIsSettingsOpen(false)}
             onProfileUpdated={() => user && loadProfile(user.id)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {!currentCallId && currentDM && (
+          <DMWindow
+            myUid={userProfile.uid}
+            friend={currentDM}
+            onClose={() => setCurrentDM(null)}
           />
         )}
       </AnimatePresence>

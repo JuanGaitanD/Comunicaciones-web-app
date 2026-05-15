@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { motion } from 'motion/react';
-import { Plus, Phone, LogOut, Settings } from 'lucide-react';
-import { Call, UserProfile } from '../types';
+import { Plus, Phone, LogOut, Settings, Users } from 'lucide-react';
+import { Call, UserProfile, FriendWithProfile } from '../types';
+import { useFriends } from '../hooks/useFriends';
+import FriendsPanel from './FriendsPanel';
 
 interface DashboardProps {
   userProfile: UserProfile;
   onJoinCall: (callId: string) => void;
   onLogout: () => void;
   onOpenSettings: () => void;
+  onStartDM: (friend: FriendWithProfile) => void;
 }
 
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -24,11 +27,14 @@ function rowToCall(row: any): Call {
   };
 }
 
-export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSettings }: DashboardProps) {
+export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSettings, onStartDM }: DashboardProps) {
   const [activeCalls, setActiveCalls] = useState<Call[]>([]);
   const [endedCalls, setEndedCalls] = useState<Call[]>([]);
   const [newCallName, setNewCallName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+
+  const { friends, received, sent, loading: friendsLoading, searchUsers, sendRequest, accept, reject, cancel, block } = useFriends(userProfile.uid);
 
   const refetch = useCallback(async () => {
     const activeThreshold = new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString();
@@ -109,6 +115,18 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
           </div>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={() => setFriendsOpen(true)}
+            className="relative p-3 bg-[var(--accent)] text-[var(--text)] rounded-xl hover:bg-[var(--border)] transition-all shadow-sm"
+            aria-label="Amigos"
+          >
+            <Users size={22} />
+            {received.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {received.length}
+              </span>
+            )}
+          </button>
           <button onClick={onOpenSettings} className="p-3 bg-[var(--accent)] text-[var(--text)] rounded-xl hover:bg-[var(--border)] transition-all shadow-sm" aria-label="Ajustes"><Settings size={22} /></button>
           <button onClick={onLogout} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all shadow-sm" aria-label="Cerrar sesión"><LogOut size={22} /></button>
         </div>
@@ -217,6 +235,30 @@ export default function Dashboard({ userProfile, onJoinCall, onLogout, onOpenSet
           </div>
         </section>
       </main>
+
+      <FriendsPanel
+        myUid={userProfile.uid}
+        open={friendsOpen}
+        onClose={() => setFriendsOpen(false)}
+        onStartDM={onStartDM}
+        friends={friends}
+        received={received}
+        sent={sent}
+        loading={friendsLoading}
+        searchUsers={searchUsers}
+        sendRequest={sendRequest}
+        accept={accept}
+        reject={reject}
+        cancel={cancel}
+        block={block}
+      />
+
+      {friendsOpen && (
+        <div
+          className="fixed inset-0 bg-black/20 z-40"
+          onClick={() => setFriendsOpen(false)}
+        />
+      )}
     </div>
   );
 }

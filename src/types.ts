@@ -43,3 +43,39 @@ export interface Signal {
   data: string;
   timestamp: string;
 }
+
+export type FriendshipStatus = 'pending' | 'accepted' | 'blocked';
+
+export interface Friendship {
+  user_a_id: string;
+  user_b_id: string;
+  status: FriendshipStatus;
+  requested_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FriendWithProfile {
+  friendship: Friendship;
+  otherUid: string;
+  otherProfile: {
+    displayName: string;
+    photoURL: string;
+  };
+}
+
+export interface DMThread {
+  id: string;
+  user_a_id: string;
+  user_b_id: string;
+  created_at: string;
+  last_message_at: string;
+}
+
+export interface DMMessage {
+  id: string;
+  thread_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+}
