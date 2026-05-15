@@ -24,6 +24,16 @@ export interface Call {
   createdAt: string;
   status: 'active' | 'ended';
   lastActiveAt?: string;
+  visibility: 'public' | 'private';
+  inviteCode?: string | null;
+}
+
+export interface CallMessage {
+  id: string;
+  call_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
 }
 
 export interface Participant {

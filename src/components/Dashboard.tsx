@@ -28,6 +28,8 @@ function rowToCall(row: any): Call {
     status: row.status,
     createdAt: row.created_at,
     lastActiveAt: row.last_active_at,
+    visibility: row.visibility ?? 'public',
+    inviteCode: row.invite_code ?? null,
   };
 }
 
