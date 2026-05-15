@@ -181,8 +181,12 @@ export default function Dashboard({
             />
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-[var(--text)] tracking-tight">Hola, {userProfile.displayName}</h2>
-            <p className="text-sm text-[var(--muted)] font-medium">¿Listo para una comunicación auténtica?</p>
+            {/* KallIt brand — dashboard header */}
+            <div className="brand-kallit text-2xl leading-none mb-1">
+              <span className="text-[var(--text)]">Kall</span><span className="brand-it text-[var(--primary)]">It</span>
+            </div>
+            <h2 className="text-sm text-[var(--text)] font-semibold">Hola, {userProfile.displayName}</h2>
+            <p className="text-xs text-[var(--muted)] font-medium">¿Listo para una comunicación auténtica?</p>
           </div>
         </div>
         <div className="flex gap-3">

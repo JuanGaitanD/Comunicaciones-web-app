@@ -57,8 +57,14 @@ export default function Auth() {
       {/* Left Pane: Branding & Visuals */}
       <div className="hidden lg:flex flex-col justify-between p-12 bg-[#0a0a0a] text-white relative overflow-hidden">
         <div className="relative z-10">
-          <h2 className="text-sm uppercase tracking-[0.2em] font-medium opacity-60 mb-8">Comunicaciones made By Jada</h2>
-          <h1 className="text-[120px] leading-[0.85] font-bold tracking-tighter mb-8">
+          {/* KallIt brand — panel oscuro */}
+          <div className="mb-10">
+            <span className="brand-kallit text-5xl">
+              <span className="text-white">Kall</span><span className="brand-it text-[var(--primary)]">It</span>
+            </span>
+            <p className="text-xs uppercase tracking-[0.2em] font-medium opacity-40 mt-2">made by Jada</p>
+          </div>
+          <h1 className="text-[110px] leading-[0.85] font-bold tracking-tighter mb-8">
             CONECTA<br />TU VOZ
           </h1>
           <p className="max-w-md text-lg opacity-80 leading-relaxed">
@@ -89,8 +95,11 @@ export default function Auth() {
           animate={{ opacity: 1, x: 0 }}
           className="w-full max-w-md space-y-8"
         >
-          <div className="lg:hidden text-center space-y-2 mb-12">
-            <h1 className="text-4xl font-bold tracking-tighter text-[var(--text)]">COMUNICACIONES</h1>
+          {/* KallIt brand — vista móvil */}
+          <div className="lg:hidden text-center mb-12">
+            <div className="brand-kallit text-5xl mb-2">
+              <span className="text-[var(--text)]">Kall</span><span className="brand-it text-[var(--primary)]">It</span>
+            </div>
             <p className="text-[var(--muted)]">Conéctate con tu voz</p>
           </div>
 
