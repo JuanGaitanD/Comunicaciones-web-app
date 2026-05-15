@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, AlertCircle, UserPlus, Clock } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Volume2, AlertCircle, UserPlus, Clock, MessageSquare } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
+import { useCallMessages } from '../hooks/useCallMessages';
 import { Participant, Mood, UserProfile, FriendWithProfile } from '../types';
 import { cn } from '../lib/utils';
+import CallChatPanel from './CallChatPanel';
 
 interface CallRoomProps {
   callId: string;
@@ -191,6 +193,27 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const [reconnectTick, setReconnectTick] = useState(0);
   const [isEndingCall, setIsEndingCall] = useState(false);
   const [friendRequestPending, setFriendRequestPending] = useState<Set<string>>(new Set());
+  const [chatOpen, setChatOpen] = useState(false);
+  const [lastReadCount, setLastReadCount] = useState(0);
+
+  const { messages: chatMessages, loading: chatLoading, send: sendChatMessage } = useCallMessages(callId, userProfile.uid);
+
+  // Sincroniza lastReadCount mientras el chat está abierto: cualquier mensaje
+  // nuevo se considera leído inmediatamente. Al cerrar el panel, queda fijo
+  // hasta que llegue otro mensaje (que entonces sí incrementa el badge).
+  useEffect(() => {
+    if (chatOpen) setLastReadCount(chatMessages.length);
+  }, [chatOpen, chatMessages.length]);
+
+  const unreadChat = chatOpen ? 0 : Math.max(0, chatMessages.length - lastReadCount);
+
+  const participantsMap = useMemo(() => {
+    const m = new Map<string, { displayName: string; photoURL: string }>();
+    for (const p of Object.values(participants)) {
+      m.set(p.uid, { displayName: p.displayName, photoURL: p.photoURL });
+    }
+    return m;
+  }, [participants]);
 
   const friendRelationOf = useCallback((uid: string): FriendRelation => {
     if (friends.some((f) => f.otherUid === uid)) return 'friends';
@@ -601,13 +624,33 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           <h1 className="text-2xl font-bold text-[var(--text)]">{callName}</h1>
           <p className="text-sm text-[var(--muted)]">{Object.keys(participants).length} participantes conectados</p>
         </div>
-        <button
-          onClick={handleLeaveClick}
-          className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center gap-2"
-          aria-label="Terminar comunicación (Esc)"
-        >
-          <PhoneOff size={20} /> <span className="hidden sm:inline">Terminar</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setChatOpen((v) => !v)}
+            className={cn(
+              'relative p-3 rounded-full transition-colors flex items-center gap-2',
+              chatOpen
+                ? 'bg-[var(--primary)] text-white'
+                : 'bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]'
+            )}
+            aria-label="Chat de la llamada"
+            title="Chat"
+          >
+            <MessageSquare size={20} />
+            {unreadChat > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {unreadChat > 9 ? '9+' : unreadChat}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={handleLeaveClick}
+            className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center gap-2"
+            aria-label="Terminar comunicación (Esc)"
+          >
+            <PhoneOff size={20} /> <span className="hidden sm:inline">Terminar</span>
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 content-start">
@@ -672,6 +715,16 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           <p>Atajos: <strong>M</strong> para micro, <strong>Esc</strong> para salir</p>
         </div>
       </footer>
+
+      <CallChatPanel
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        messages={chatMessages}
+        loading={chatLoading}
+        send={sendChatMessage}
+        myUid={userProfile.uid}
+        participantsMap={participantsMap}
+      />
     </div>
   );
 }
