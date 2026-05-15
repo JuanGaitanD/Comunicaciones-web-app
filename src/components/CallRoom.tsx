@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, AlertCircle, UserPlus, Clock, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { useCallMessages } from '../hooks/useCallMessages';
@@ -51,6 +51,8 @@ function ParticipantCard({
   isLocal,
   volume,
   onVolumeChange,
+  isMutedByListener,
+  onToggleListenerMute,
   friendRelation,
   onSendFriendRequest,
   friendRequestPending,
@@ -60,6 +62,8 @@ function ParticipantCard({
   isLocal?: boolean;
   volume?: number;
   onVolumeChange?: (v: number) => void;
+  isMutedByListener?: boolean;
+  onToggleListenerMute?: () => void;
   friendRelation?: FriendRelation;
   onSendFriendRequest?: () => void;
   friendRequestPending?: boolean;
@@ -71,7 +75,7 @@ function ParticipantCard({
     const el = audioRef.current;
     if (el && stream && !isLocal) {
       el.srcObject = stream;
-      el.volume = volume ?? 1;
+      el.volume = isMutedByListener ? 0 : (volume ?? 1);
       // Chrome bloquea autoplay del <audio> cuando el stream también está
       // conectado a un AudioContext (useAudioLevel). Forzar play.
       el.play().catch((err) => {
@@ -82,7 +86,7 @@ function ParticipantCard({
       // Liberar la referencia al MediaStream para que el GC pueda recogerlo.
       if (el) el.srcObject = null;
     };
-  }, [stream, isLocal, volume]);
+  }, [stream, isLocal, volume, isMutedByListener]);
 
   return (
     <motion.div
@@ -159,7 +163,14 @@ function ParticipantCard({
       {!isLocal && (
         <div className="w-full space-y-2">
           <div className="flex items-center gap-2">
-            <Volume2 size={14} className="text-[var(--muted)]" />
+            <button
+              onClick={onToggleListenerMute}
+              className="flex-shrink-0 text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+              title={isMutedByListener ? 'Activar audio' : 'Silenciar'}
+              aria-label={isMutedByListener ? 'Activar audio' : 'Silenciar'}
+            >
+              {isMutedByListener ? <VolumeX size={14} className="text-red-400" /> : <Volume2 size={14} />}
+            </button>
             <input
               type="range"
               min="0"
@@ -167,7 +178,8 @@ function ParticipantCard({
               step="0.1"
               value={volume ?? 1}
               onChange={(e) => onVolumeChange?.(parseFloat(e.target.value))}
-              className="flex-1 h-1 bg-[var(--accent)] rounded-lg appearance-none cursor-pointer accent-[var(--primary)]"
+              disabled={isMutedByListener}
+              className="flex-1 h-1 bg-[var(--accent)] rounded-lg appearance-none cursor-pointer accent-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
             />
           </div>
           <audio ref={audioRef} autoPlay style={{ display: 'none' }} />
@@ -195,6 +207,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const [friendRequestPending, setFriendRequestPending] = useState<Set<string>>(new Set());
   const [chatOpen, setChatOpen] = useState(false);
   const [lastReadCount, setLastReadCount] = useState(0);
+  const [callVisibility, setCallVisibility] = useState<'public' | 'private'>('public');
+  const [callInviteCode, setCallInviteCode] = useState<string | null>(null);
+  const [localMuted, setLocalMuted] = useState<{ [uid: string]: boolean }>({});
+  const [toast, setToast] = useState<string | null>(null);
 
   const { messages: chatMessages, loading: chatLoading, send: sendChatMessage } = useCallMessages(callId, userProfile.uid);
 
@@ -221,11 +237,17 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     return 'none';
   }, [friends, sent]);
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }, []);
+
   const handleSendFriendRequest = useCallback(async (uid: string) => {
     if (friendRequestPending.has(uid)) return;
     setFriendRequestPending((prev) => new Set(prev).add(uid));
     try {
       await sendFriendRequest(uid);
+      showToast('Solicitud de amistad enviada');
     } catch (err) {
       console.error('Error enviando solicitud:', err);
       setFriendRequestPending((prev) => {
@@ -234,7 +256,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         return next;
       });
     }
-  }, [friendRequestPending, sendFriendRequest]);
+  }, [friendRequestPending, sendFriendRequest, showToast]);
 
   const joinedAtRef = useRef<string>(new Date().toISOString());
   const moodRef = useRef<Mood>('none');
@@ -267,7 +289,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     (async () => {
       const { data, error } = await supabase
         .from('calls')
-        .select('name, creator_id, status')
+        .select('name, creator_id, status, visibility, invite_code')
         .eq('id', callId)
         .single();
       if (cancelled) return;
@@ -278,6 +300,8 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
       }
       setCallName(data.name);
       setCreatorId(data.creator_id);
+      setCallVisibility(data.visibility ?? 'public');
+      setCallInviteCode(data.invite_code ?? null);
       if (data.status === 'ended') {
         onLeave();
       }
@@ -546,6 +570,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     setLocalVolumes(prev => ({ ...prev, [uid]: volume }));
   }, []);
 
+  const handleToggleListenerMute = useCallback((uid: string) => {
+    setLocalMuted(prev => ({ ...prev, [uid]: !prev[uid] }));
+  }, []);
+
   const handleLeaveClick = () => {
     if (userProfile.uid === creatorId) {
       setShowLeaveModal(true);
@@ -624,7 +652,22 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           <h1 className="text-2xl font-bold text-[var(--text)]">{callName}</h1>
           <p className="text-sm text-[var(--muted)]">{Object.keys(participants).length} participantes conectados</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="relative flex items-center gap-2">
+          {callVisibility === 'private' && callInviteCode && (
+            <button
+              onClick={async () => {
+                const base = import.meta.env.BASE_URL || '/';
+                const link = `${window.location.origin}${base}?invite=${callInviteCode}`;
+                await navigator.clipboard.writeText(link);
+                showToast('Link de invitación copiado');
+              }}
+              className="p-3 rounded-full bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)] transition-colors"
+              aria-label="Copiar link de invitación"
+              title="Copiar link de invitación"
+            >
+              <LinkIcon size={20} />
+            </button>
+          )}
           <button
             onClick={() => setChatOpen((v) => !v)}
             className={cn(
@@ -650,6 +693,23 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           >
             <PhoneOff size={20} /> <span className="hidden sm:inline">Terminar</span>
           </button>
+
+          {/* Toast de confirmación — sale debajo de los botones */}
+          <AnimatePresence>
+            {toast && (
+              <motion.div
+                key={toast}
+                initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                transition={{ type: 'spring', damping: 20, stiffness: 260 }}
+                className="absolute top-full right-0 mt-2 z-[60] flex items-center gap-2 px-4 py-2.5 bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-xl text-sm font-medium text-[var(--text)] whitespace-nowrap"
+              >
+                <Check size={15} className="text-green-500 flex-shrink-0" />
+                {toast}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
@@ -670,6 +730,8 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                 isLocal={p.uid === userProfile.uid}
                 volume={localVolumes[p.uid]}
                 onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+                isMutedByListener={localMuted[p.uid] ?? false}
+                onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
                 friendRelation={friendRelationOf(p.uid)}
                 onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
                 friendRequestPending={friendRequestPending.has(p.uid)}
@@ -725,6 +787,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         myUid={userProfile.uid}
         participantsMap={participantsMap}
       />
+
     </div>
   );
 }
