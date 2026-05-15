@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { useCallMessages } from '../hooks/useCallMessages';
@@ -48,6 +48,7 @@ interface PresenceItem {
 function ParticipantCard({
   participant,
   stream,
+  screenStream,
   isLocal,
   volume,
   onVolumeChange,
@@ -59,6 +60,7 @@ function ParticipantCard({
 }: {
   participant: Participant;
   stream: MediaStream | null;
+  screenStream?: MediaStream | null;
   isLocal?: boolean;
   volume?: number;
   onVolumeChange?: (v: number) => void;
@@ -70,6 +72,21 @@ function ParticipantCard({
 }) {
   const audioLevel = useAudioLevel(stream);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const showingScreen = !!(participant.isSharingScreen && screenStream);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (showingScreen && screenStream) {
+      el.srcObject = screenStream;
+      el.play().catch((err) => console.warn('No se pudo reproducir screen share:', err));
+    }
+    return () => {
+      if (el) el.srcObject = null;
+    };
+  }, [screenStream, showingScreen]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -96,40 +113,60 @@ function ParticipantCard({
       exit={{ opacity: 0, scale: 0.9 }}
       className="card p-6 flex flex-col items-center space-y-4 relative"
     >
-      <div className="relative">
-        <motion.div
-          animate={{
-            scale: participant.isMuted ? 1 : 1 + (audioLevel * 0.3),
-            opacity: participant.isMuted ? 0 : audioLevel > 0.1 ? 0.6 : 0,
-          }}
-          className="absolute inset-0 rounded-full border-4 border-[var(--primary)] blur-sm"
-        />
-
-        <img
-          src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
-          alt={participant.displayName}
-          referrerPolicy="no-referrer"
-          className={cn(
-            "w-24 h-24 rounded-full border-4 transition-all duration-300 relative z-10",
-            participant.mood !== 'none' ? "border-[var(--primary)] scale-110" : "border-[var(--border)]",
-            !participant.isMuted && audioLevel > 0.1 ? "border-[var(--primary)]" : ""
-          )}
-        />
-        {participant.mood !== 'none' && (
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="absolute -top-2 -right-2 text-3xl bg-[var(--card)] rounded-full p-1 shadow-lg z-20"
-          >
-            {MOODS.find(m => m.type === participant.mood)?.emoji}
-          </motion.div>
-        )}
-        {participant.isMuted && (
-          <div className="absolute bottom-0 right-0 bg-red-500 text-white p-1 rounded-full border-2 border-[var(--card)] z-20">
-            <MicOff size={14} />
+      {showingScreen ? (
+        <div className="relative w-full">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isLocal}
+            className="w-full aspect-video rounded-xl object-contain bg-black"
+          />
+          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 text-white text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md backdrop-blur-sm">
+            <Monitor size={11} /> Compartiendo
           </div>
-        )}
-      </div>
+          {participant.isMuted && (
+            <div className="absolute bottom-2 right-2 bg-red-500 text-white p-1 rounded-full border-2 border-[var(--card)] z-20">
+              <MicOff size={14} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="relative">
+          <motion.div
+            animate={{
+              scale: participant.isMuted ? 1 : 1 + (audioLevel * 0.3),
+              opacity: participant.isMuted ? 0 : audioLevel > 0.1 ? 0.6 : 0,
+            }}
+            className="absolute inset-0 rounded-full border-4 border-[var(--primary)] blur-sm"
+          />
+
+          <img
+            src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
+            alt={participant.displayName}
+            referrerPolicy="no-referrer"
+            className={cn(
+              "w-24 h-24 rounded-full border-4 transition-all duration-300 relative z-10",
+              participant.mood !== 'none' ? "border-[var(--primary)] scale-110" : "border-[var(--border)]",
+              !participant.isMuted && audioLevel > 0.1 ? "border-[var(--primary)]" : ""
+            )}
+          />
+          {participant.mood !== 'none' && (
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="absolute -top-2 -right-2 text-3xl bg-[var(--card)] rounded-full p-1 shadow-lg z-20"
+            >
+              {MOODS.find(m => m.type === participant.mood)?.emoji}
+            </motion.div>
+          )}
+          {participant.isMuted && (
+            <div className="absolute bottom-0 right-0 bg-red-500 text-white p-1 rounded-full border-2 border-[var(--card)] z-20">
+              <MicOff size={14} />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="text-center">
         <div className="flex items-center justify-center gap-2">
@@ -261,6 +298,11 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const joinedAtRef = useRef<string>(new Date().toISOString());
   const moodRef = useRef<Mood>('none');
   const mutedRef = useRef<boolean>(false);
+  // sharingScreenRef: fuente de verdad del último broadcast enviado. El effect
+  // de sincronización abajo (basado en localScreenStream) lo actualiza y
+  // broadcastea cuando difiere, cubriendo el toggle manual, el botón nativo
+  // del navegador (track.onended) y el cleanup al salir, en un solo lugar.
+  const sharingScreenRef = useRef<boolean>(false);
   const knownPeersRef = useRef<Set<string>>(new Set());
   // presenceUidsRef: uids vistos en el último sync. Sirve para detectar
   // peers nuevos y broadcastear nuestro estado dinámico (mood/isMuted) a
@@ -279,7 +321,15 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     [participants]
   );
 
-  const { localStream, remoteStreams, initiateCall } = useWebRTC(callId, userProfile.uid, channel, peerUidsKey);
+  const {
+    localStream,
+    remoteStreams,
+    initiateCall,
+    localScreenStream,
+    remoteScreenStreams,
+    startScreenShare,
+    stopScreenShare,
+  } = useWebRTC(callId, userProfile.uid, channel, peerUidsKey);
 
   // 1. Cargar info de la llamada inicial y suscribirse a cambios de su fila.
   useEffect(() => {
@@ -336,6 +386,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
       joinedAtRef.current = new Date().toISOString();
       moodRef.current = 'none';
       mutedRef.current = false;
+      sharingScreenRef.current = false;
       knownPeersRef.current.clear();
       setCurrentMood('none');
       setIsMuted(false);
@@ -396,6 +447,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
             uid: userProfile.uid,
             mood: moodRef.current,
             isMuted: mutedRef.current,
+            isSharingScreen: sharingScreenRef.current,
           },
         });
       }
@@ -405,17 +457,21 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     // broadcast no persiste — cada mensaje es independiente y sustituye
     // el estado anterior en nuestro local participants[uid].
     ch.on('broadcast', { event: 'peer-state' }, ({ payload }) => {
-      const { uid, mood, isMuted } = payload as {
+      const { uid, mood, isMuted, isSharingScreen } = payload as {
         uid: string;
         mood: Mood;
         isMuted: boolean;
+        isSharingScreen?: boolean;
       };
       // Solo aplicamos para peers remotos. Nuestro propio estado lo
-      // controlamos localmente con isMuted/currentMood.
+      // controlamos localmente con isMuted/currentMood/sharingScreenRef.
       if (uid === userProfile.uid) return;
       setParticipants(prev => {
         if (!prev[uid]) return prev; // todavía no tenemos su presence
-        return { ...prev, [uid]: { ...prev[uid], mood, isMuted } };
+        return {
+          ...prev,
+          [uid]: { ...prev[uid], mood, isMuted, isSharingScreen: !!isSharingScreen },
+        };
       });
     });
 
@@ -455,9 +511,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         photoURL: userProfile.photoURL,
         joinedAt: joinedAtRef.current,
       });
-      // Si tenemos mood/isMuted activos (reconexión), broadcastearlos para
-      // que los peers existentes nos vean con el estado correcto.
-      if (moodRef.current !== 'none' || mutedRef.current) {
+      // Si tenemos mood/isMuted/isSharingScreen activos (reconexión),
+      // broadcastearlos para que los peers existentes nos vean con el estado
+      // correcto.
+      if (moodRef.current !== 'none' || mutedRef.current || sharingScreenRef.current) {
         ch.send({
           type: 'broadcast',
           event: 'peer-state',
@@ -465,6 +522,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
             uid: userProfile.uid,
             mood: moodRef.current,
             isMuted: mutedRef.current,
+            isSharingScreen: sharingScreenRef.current,
           },
         });
       }
@@ -536,9 +594,32 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         uid: userProfile.uid,
         mood: moodRef.current,
         isMuted,
+        isSharingScreen: sharingScreenRef.current,
       },
     });
   }, [isMuted, userProfile.uid]);
+
+  // 5c. Sync de screen share local → broadcast. Guarda anti-loop: solo emite
+  // si el valor derivado de localScreenStream difiere del último ref enviado.
+  // Unifica los 3 caminos por los que isSharingScreen puede cambiar:
+  // toggle manual, botón nativo del navegador (track.onended) y cleanup.
+  useEffect(() => {
+    const newValue = !!localScreenStream;
+    if (sharingScreenRef.current === newValue) return;
+    sharingScreenRef.current = newValue;
+    const ch = channelRef.current;
+    if (!ch) return;
+    ch.send({
+      type: 'broadcast',
+      event: 'peer-state',
+      payload: {
+        uid: userProfile.uid,
+        mood: moodRef.current,
+        isMuted: mutedRef.current,
+        isSharingScreen: newValue,
+      },
+    });
+  }, [localScreenStream, userProfile.uid]);
 
   // 6. Atajos de teclado.
   useEffect(() => {
@@ -563,6 +644,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           uid: userProfile.uid,
           mood: newMood,
           isMuted: mutedRef.current,
+          isSharingScreen: sharingScreenRef.current,
         },
       });
     }
@@ -575,6 +657,17 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const handleToggleListenerMute = useCallback((uid: string) => {
     setLocalMuted(prev => ({ ...prev, [uid]: !prev[uid] }));
   }, []);
+
+  const handleToggleScreenShare = useCallback(async () => {
+    // No actualizamos sharingScreenRef ni broadcasteamos aquí: el effect 5c lo
+    // hace en función de localScreenStream, cubriendo también el caso del
+    // botón nativo del navegador.
+    if (sharingScreenRef.current) {
+      await stopScreenShare();
+    } else {
+      await startScreenShare();
+    }
+  }, [startScreenShare, stopScreenShare]);
 
   const handleLeaveClick = () => {
     if (userProfile.uid === creatorId) {
@@ -722,13 +815,14 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
             // (es la fuente de verdad). Para peers remotos, lo que tengamos
             // en participants[uid] viene del broadcast.
             const display: Participant = p.uid === userProfile.uid
-              ? { ...p, mood: currentMood, isMuted }
+              ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
               : p;
             return (
               <ParticipantCard
                 key={p.uid}
                 participant={display}
                 stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+                screenStream={p.uid === userProfile.uid ? localScreenStream : remoteScreenStreams[p.uid]}
                 isLocal={p.uid === userProfile.uid}
                 volume={localVolumes[p.uid]}
                 onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
@@ -755,6 +849,20 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           >
             {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
             <span className="hidden sm:inline">{isMuted ? 'Silenciado' : 'Hablando'}</span>
+          </button>
+          <button
+            onClick={handleToggleScreenShare}
+            className={cn(
+              "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
+              localScreenStream
+                ? "bg-[var(--primary)] text-white"
+                : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
+            )}
+            aria-label={localScreenStream ? "Detener compartir pantalla" : "Compartir pantalla"}
+            title={localScreenStream ? "Detener compartir pantalla" : "Compartir pantalla"}
+          >
+            {localScreenStream ? <MonitorOff size={24} /> : <Monitor size={24} />}
+            <span className="hidden sm:inline">{localScreenStream ? 'Compartiendo' : 'Compartir'}</span>
           </button>
         </div>
 
