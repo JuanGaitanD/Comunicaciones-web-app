@@ -43,6 +43,7 @@ export interface Participant {
   joinedAt: string;
   mood: Mood;
   isMuted: boolean;
+  isSharingScreen: boolean;
   volume?: number; // Local volume for this participant (not synced)
 }
 

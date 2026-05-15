@@ -24,8 +24,14 @@ export function useWebRTC(
 ) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{ [uid: string]: MediaStream }>({});
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState<{ [uid: string]: MediaStream }>({});
   const peerConnections = useRef<{ [uid: string]: RTCPeerConnection }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  // Refs por peer: el RTCRtpSender retornado por addTrack(videoTrack). Necesario
+  // para llamar removeTrack al detener el screen share.
+  const videoSendersRef = useRef<{ [uid: string]: RTCRtpSender }>({});
 
   // Capturar localStream una vez por llamada.
   useEffect(() => {
@@ -46,12 +52,19 @@ export function useWebRTC(
     })();
     return () => {
       cancelled = true;
+      // Liberar screen stream antes que audio para evitar quedar con stream
+      // colgante si el usuario sale mientras comparte.
+      screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+      videoSendersRef.current = {};
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
       Object.values(peerConnections.current).forEach((pc) => pc.close());
       peerConnections.current = {};
       setRemoteStreams({});
+      setRemoteScreenStreams({});
       setLocalStream(null);
+      setLocalScreenStream(null);
     };
   }, [callId]);
 
@@ -68,8 +81,14 @@ export function useWebRTC(
     for (const uid of toRemove) {
       peerConnections.current[uid].close();
       delete peerConnections.current[uid];
+      delete videoSendersRef.current[uid];
     }
     setRemoteStreams((prev) => {
+      const next = { ...prev };
+      for (const uid of toRemove) delete next[uid];
+      return next;
+    });
+    setRemoteScreenStreams((prev) => {
       const next = { ...prev };
       for (const uid of toRemove) delete next[uid];
       return next;
@@ -100,14 +119,38 @@ export function useWebRTC(
       };
 
       pc.ontrack = (event) => {
-        if (event.streams.length > 0) {
-          setRemoteStreams((prev) => ({ ...prev, [peerUid]: event.streams[0] }));
+        if (event.track.kind === 'audio') {
+          // Audio: usar event.streams[0] funciona porque viene del getUserMedia
+          // original donde el stream se preserva a través del addTrack inicial.
+          if (event.streams.length > 0) {
+            setRemoteStreams((prev) => ({ ...prev, [peerUid]: event.streams[0] }));
+          }
+        } else if (event.track.kind === 'video') {
+          // Video: envolver el track en un MediaStream nuevo. event.streams[0]
+          // es inconsistente entre Chrome/Safari/Firefox cuando la pista se
+          // agrega dinámicamente con addTrack después de crear la PC.
+          const newStream = new MediaStream([event.track]);
+          setRemoteScreenStreams((prev) => ({ ...prev, [peerUid]: newStream }));
+          // Cuando el peer detiene el share, su track local emite 'ended' y la
+          // pista remota cambia a estado mute. Para limpiar la UI usamos onended.
+          event.track.onended = () => {
+            setRemoteScreenStreams((prev) => {
+              const next = { ...prev };
+              delete next[peerUid];
+              return next;
+            });
+          };
         }
       };
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           setRemoteStreams((prev) => {
+            const next = { ...prev };
+            delete next[peerUid];
+            return next;
+          });
+          setRemoteScreenStreams((prev) => {
             const next = { ...prev };
             delete next[peerUid];
             return next;
@@ -119,6 +162,17 @@ export function useWebRTC(
         localStreamRef.current.getTracks().forEach((track) => {
           pc.addTrack(track, localStreamRef.current!);
         });
+      }
+
+      // Si el usuario ya está compartiendo pantalla cuando llega un peer nuevo,
+      // agregar también la pista de video para que la vea desde el inicio.
+      // La renegociación natural del setup de PC se encarga del SDP.
+      if (screenStreamRef.current) {
+        const videoTrack = screenStreamRef.current.getVideoTracks()[0];
+        if (videoTrack) {
+          const sender = pc.addTrack(videoTrack, screenStreamRef.current);
+          videoSendersRef.current[peerUid] = sender;
+        }
       }
 
       peerConnections.current[peerUid] = pc;
@@ -187,5 +241,96 @@ export function useWebRTC(
     [userId, createPeerConnection, sendSignal]
   );
 
-  return { localStream, remoteStreams, initiateCall };
+  // Renegociación manual tras agregar/quitar tracks. Glare protection lite:
+  // si la PC no está en 'stable', otra oferta ya está en vuelo y procesarla
+  // crashea con InvalidStateError. La próxima señal volverá a stable y un
+  // retry del usuario cubre el caso raro.
+  const renegotiate = useCallback(
+    async (peerUid: string, pc: RTCPeerConnection) => {
+      if (!userId) return;
+      if (pc.signalingState !== 'stable') {
+        console.warn(`PC ${peerUid} no estable (${pc.signalingState}), salto renegociación`);
+        return;
+      }
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({
+          from: userId,
+          to: peerUid,
+          type: 'offer',
+          data: JSON.stringify(offer),
+        });
+      } catch (err) {
+        console.error('Error renegociando con', peerUid, err);
+      }
+    },
+    [userId, sendSignal]
+  );
+
+  const stopScreenShare = useCallback(async () => {
+    if (!screenStreamRef.current) return;
+    // Snapshot por si el cleanup llega mid-await.
+    const stream = screenStreamRef.current;
+    const senders = videoSendersRef.current;
+    screenStreamRef.current = null;
+    videoSendersRef.current = {};
+
+    for (const [peerUid, pc] of Object.entries(peerConnections.current)) {
+      const sender = senders[peerUid];
+      if (sender) {
+        try {
+          pc.removeTrack(sender);
+        } catch (err) {
+          console.warn('removeTrack falló para', peerUid, err);
+        }
+        await renegotiate(peerUid, pc);
+      }
+    }
+
+    stream.getTracks().forEach((t) => t.stop());
+    setLocalScreenStream(null);
+  }, [renegotiate]);
+
+  const startScreenShare = useCallback(async () => {
+    if (screenStreamRef.current) return; // ya activo
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      const track = stream.getVideoTracks()[0];
+      if (!track) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      // Listener para el botón nativo "Detener uso compartido" del navegador.
+      track.onended = () => {
+        stopScreenShare();
+      };
+
+      screenStreamRef.current = stream;
+      setLocalScreenStream(stream);
+
+      for (const [peerUid, pc] of Object.entries(peerConnections.current)) {
+        const sender = pc.addTrack(track, stream);
+        videoSendersRef.current[peerUid] = sender;
+        await renegotiate(peerUid, pc);
+      }
+    } catch (err) {
+      // El usuario canceló el diálogo de selección o se denegó el permiso.
+      // No es un error real — log a info nivel para diagnóstico.
+      console.warn('Screen share cancelado o falló:', err);
+    }
+  }, [renegotiate, stopScreenShare]);
+
+  return {
+    localStream,
+    remoteStreams,
+    initiateCall,
+    localScreenStream,
+    remoteScreenStreams,
+    startScreenShare,
+    stopScreenShare,
+  };
 }

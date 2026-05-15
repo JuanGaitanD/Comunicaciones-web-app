@@ -368,10 +368,12 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
             displayName: item.displayName,
             photoURL: item.photoURL,
             joinedAt: item.joinedAt,
-            // mood/isMuted vienen de Broadcast. Preservamos lo que ya teníamos
-            // y dejamos defaults si nunca recibimos broadcast de este peer.
+            // mood/isMuted/isSharingScreen vienen de Broadcast. Preservamos lo
+            // que ya teníamos y dejamos defaults si nunca recibimos broadcast
+            // de este peer.
             mood: prev[uid]?.mood ?? 'none',
             isMuted: prev[uid]?.isMuted ?? false,
+            isSharingScreen: prev[uid]?.isSharingScreen ?? false,
           };
         }
         return next;
