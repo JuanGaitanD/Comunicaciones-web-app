@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase';
-import { motion } from 'motion/react';
-import { Plus, Phone, LogOut, Settings, Users } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, Phone, LogOut, Settings, Users, Globe, Lock, Link as LinkIcon, Check } from 'lucide-react';
 import { Call, UserProfile, FriendWithProfile } from '../types';
-import { useFriends } from '../hooks/useFriends';
+import type { useFriends } from '../hooks/useFriends';
 import FriendsPanel from './FriendsPanel';
+import { cn } from '../lib/utils';
 
 interface DashboardProps {
   userProfile: UserProfile;
@@ -16,6 +17,7 @@ interface DashboardProps {
   totalUnread: number;
   notifPermission: NotificationPermission | 'unsupported';
   requestNotificationPermission: () => Promise<void>;
+  friendsApi: ReturnType<typeof useFriends>;
 }
 
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -43,14 +45,37 @@ export default function Dashboard({
   totalUnread,
   notifPermission,
   requestNotificationPermission,
+  friendsApi,
 }: DashboardProps) {
   const [activeCalls, setActiveCalls] = useState<Call[]>([]);
   const [endedCalls, setEndedCalls] = useState<Call[]>([]);
   const [newCallName, setNewCallName] = useState('');
+  const [newCallVisibility, setNewCallVisibility] = useState<'public' | 'private'>('public');
   const [isCreating, setIsCreating] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [copiedCallId, setCopiedCallId] = useState<string | null>(null);
 
-  const { friends, received, sent, blocked, loading: friendsLoading, searchUsers, sendRequest, accept, reject, cancel, block, unblock } = useFriends(userProfile.uid);
+  const { friends, received, sent, blocked, loading: friendsLoading, searchUsers, sendRequest, accept, reject, cancel, block, unblock } = friendsApi;
+
+  const privateCalls = useMemo(() => activeCalls.filter((c) => c.visibility === 'private'), [activeCalls]);
+  const publicCalls = useMemo(() => activeCalls.filter((c) => c.visibility === 'public'), [activeCalls]);
+
+  const buildInviteLink = useCallback((code: string) => {
+    const base = import.meta.env.BASE_URL || '/';
+    return `${window.location.origin}${base}?invite=${code}`;
+  }, []);
+
+  const copyInvite = useCallback(async (call: Call) => {
+    if (!call.inviteCode) return;
+    try {
+      await navigator.clipboard.writeText(buildInviteLink(call.inviteCode));
+      setCopiedCallId(call.id);
+      setTimeout(() => setCopiedCallId((cur) => (cur === call.id ? null : cur)), 1500);
+    } catch (err) {
+      console.error('No se pudo copiar el link:', err);
+    }
+  }, [buildInviteLink]);
 
   const refetch = useCallback(async () => {
     const activeThreshold = new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString();
@@ -98,9 +123,17 @@ export default function Dashboard({
       setIsCreating(false);
       return;
     }
+    const inviteCode = newCallVisibility === 'private'
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 10)
+      : null;
     const { data, error } = await supabase
       .from('calls')
-      .insert({ name: newCallName.trim(), creator_id: user.id })
+      .insert({
+        name: newCallName.trim(),
+        creator_id: user.id,
+        visibility: newCallVisibility,
+        invite_code: inviteCode,
+      })
       .select()
       .single();
     setIsCreating(false);
@@ -111,6 +144,28 @@ export default function Dashboard({
     }
     onJoinCall(data.id);
   };
+
+  // Procesa ?invite=XYZ en la URL al montar.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('invite');
+    if (!code) return;
+    (async () => {
+      const { data, error } = await supabase.rpc('join_call_by_invite', { p_code: code });
+      // Limpiar el query param siempre, exitoso o no.
+      params.delete('invite');
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+      if (error || !data) {
+        setInviteError(error?.message ?? 'Invitación inválida o llamada terminada');
+        return;
+      }
+      onJoinCall(data as string);
+    })();
+    // Solo al montar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen p-6 bg-[var(--bg)] font-sans">
@@ -167,6 +222,37 @@ export default function Dashboard({
                 className="w-full p-4 bg-[var(--bg)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-[var(--primary)] transition-all font-medium"
                 required
               />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewCallVisibility('public')}
+                  className={cn(
+                    'py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 border transition-all',
+                    newCallVisibility === 'public'
+                      ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm'
+                      : 'bg-[var(--bg)] text-[var(--muted)] border-[var(--border)] hover:text-[var(--text)]'
+                  )}
+                >
+                  <Globe size={15} /> Pública
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewCallVisibility('private')}
+                  className={cn(
+                    'py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 border transition-all',
+                    newCallVisibility === 'private'
+                      ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm'
+                      : 'bg-[var(--bg)] text-[var(--muted)] border-[var(--border)] hover:text-[var(--text)]'
+                  )}
+                >
+                  <Lock size={15} /> Privada
+                </button>
+              </div>
+              <p className="text-[11px] text-[var(--muted)] leading-relaxed px-1">
+                {newCallVisibility === 'public'
+                  ? 'Cualquier persona puede unirse.'
+                  : 'Solo amigos la verán listada. Recibirás un link para invitar a no-amigos.'}
+              </p>
               <button
                 type="submit"
                 disabled={isCreating}
@@ -175,28 +261,109 @@ export default function Dashboard({
                 {isCreating ? 'Iniciando...' : <><Phone size={20} /> Crear Llamada</>}
               </button>
             </form>
+            <AnimatePresence>
+              {inviteError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2"
+                  onClick={() => setInviteError(null)}
+                >
+                  {inviteError}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </section>
 
         {/* Active Calls Section */}
         <section className="lg:col-span-2 space-y-8">
+          {/* Privadas */}
           <div className="space-y-4">
             <div className="flex items-center justify-between px-2">
               <h3 className="text-lg font-bold flex items-center gap-2">
-                <Phone size={20} className="text-green-500" /> En Vivo
+                <Lock size={18} className="text-[var(--primary)]" /> Privadas (amigos)
               </h3>
-              <span className="text-xs font-bold text-green-500 bg-green-50 px-2 py-1 rounded-full uppercase tracking-widest">
-                {activeCalls.length} Activas
-              </span>
+              {privateCalls.length > 0 && (
+                <span className="text-xs font-bold text-[var(--primary)] bg-[var(--accent)] px-2 py-1 rounded-full uppercase tracking-widest">
+                  {privateCalls.length}
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {activeCalls.length === 0 ? (
-                <div className="col-span-full card p-12 text-center space-y-2 bg-[var(--accent)]/30 border-dashed">
-                  <p className="text-[var(--muted)] font-medium">No hay comunicaciones activas.</p>
+              {privateCalls.length === 0 ? (
+                <div className="col-span-full card p-8 text-center space-y-1 bg-[var(--accent)]/20 border-dashed">
+                  <p className="text-[var(--muted)] text-sm font-medium">Sin llamadas privadas activas.</p>
+                  <p className="text-xs text-[var(--muted)] opacity-60">Crea una privada para coordinarte con tus amigos.</p>
+                </div>
+              ) : (
+                privateCalls.map((call) => {
+                  const isMine = call.creatorId === userProfile.uid;
+                  const justCopied = copiedCallId === call.id;
+                  return (
+                    <motion.div
+                      key={call.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      whileHover={{ y: -4 }}
+                      className="card p-5 flex items-center justify-between hover:border-[var(--primary)] transition-all cursor-pointer group shadow-sm hover:shadow-md"
+                      onClick={() => onJoinCall(call.id)}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-bold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors">{call.name}</h4>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--accent)] px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                            <Lock size={9} /> Privada
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[var(--muted)]">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                          <span className="text-xs font-medium">Activa ahora</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isMine && call.inviteCode && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); copyInvite(call); }}
+                            className="p-2.5 rounded-xl bg-[var(--accent)] text-[var(--muted)] hover:text-[var(--primary)] transition-all"
+                            title={justCopied ? '¡Copiado!' : 'Copiar invite link'}
+                            aria-label="Copiar invite link"
+                          >
+                            {justCopied ? <Check size={16} /> : <LinkIcon size={16} />}
+                          </button>
+                        )}
+                        <div className="p-3 bg-[var(--accent)] text-[var(--primary)] rounded-xl group-hover:bg-[var(--primary)] group-hover:text-white transition-all">
+                          <Phone size={20} />
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Públicas */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between px-2">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Globe size={18} className="text-green-500" /> Públicas
+              </h3>
+              {publicCalls.length > 0 && (
+                <span className="text-xs font-bold text-green-500 bg-green-50 px-2 py-1 rounded-full uppercase tracking-widest">
+                  {publicCalls.length}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {publicCalls.length === 0 ? (
+                <div className="col-span-full card p-8 text-center space-y-1 bg-[var(--accent)]/20 border-dashed">
+                  <p className="text-[var(--muted)] text-sm font-medium">No hay comunicaciones públicas activas.</p>
                   <p className="text-xs text-[var(--muted)] opacity-60">Sé el primero en iniciar una.</p>
                 </div>
               ) : (
-                activeCalls.map((call) => (
+                publicCalls.map((call) => (
                   <motion.div
                     key={call.id}
                     initial={{ opacity: 0, y: 10 }}

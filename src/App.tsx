@@ -7,6 +7,7 @@ import CallRoom from './components/CallRoom';
 import Profile from './components/Profile';
 import DMWindow from './components/DMWindow';
 import { useDMNotifications } from './hooks/useDMNotifications';
+import { useFriends } from './hooks/useFriends';
 import { UserProfile, FriendWithProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -51,6 +52,8 @@ export default function App() {
     userProfile?.uid ?? null,
     currentDM?.otherUid ?? null
   );
+
+  const friendsApi = useFriends(userProfile?.uid ?? null);
 
   useEffect(() => {
     if (currentDM) markRead(currentDM.otherUid);
@@ -137,6 +140,9 @@ export default function App() {
               callId={currentCallId}
               userProfile={userProfile}
               onLeave={() => setCurrentCallId(null)}
+              friends={friendsApi.friends}
+              sent={friendsApi.sent}
+              sendFriendRequest={friendsApi.sendRequest}
             />
           </motion.div>
         ) : (
@@ -156,6 +162,7 @@ export default function App() {
               totalUnread={totalUnread}
               notifPermission={notifPermission}
               requestNotificationPermission={requestNotificationPermission}
+              friendsApi={friendsApi}
             />
           </motion.div>
         )}

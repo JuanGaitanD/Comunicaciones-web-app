@@ -2,17 +2,22 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, AlertCircle } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Volume2, AlertCircle, UserPlus, Clock } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
-import { Participant, Mood, UserProfile } from '../types';
+import { Participant, Mood, UserProfile, FriendWithProfile } from '../types';
 import { cn } from '../lib/utils';
 
 interface CallRoomProps {
   callId: string;
   userProfile: UserProfile;
   onLeave: () => void;
+  friends: FriendWithProfile[];
+  sent: FriendWithProfile[];
+  sendFriendRequest: (targetUid: string) => Promise<void>;
 }
+
+type FriendRelation = 'friends' | 'sent' | 'none';
 
 const MOODS: { type: Mood; emoji: string; label: string }[] = [
   { type: 'feliz', emoji: '😊', label: 'Feliz' },
@@ -44,12 +49,18 @@ function ParticipantCard({
   isLocal,
   volume,
   onVolumeChange,
+  friendRelation,
+  onSendFriendRequest,
+  friendRequestPending,
 }: {
   participant: Participant;
   stream: MediaStream | null;
   isLocal?: boolean;
   volume?: number;
   onVolumeChange?: (v: number) => void;
+  friendRelation?: FriendRelation;
+  onSendFriendRequest?: () => void;
+  friendRequestPending?: boolean;
 }) {
   const audioLevel = useAudioLevel(stream);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -115,7 +126,29 @@ function ParticipantCard({
       </div>
 
       <div className="text-center">
-        <h3 className="font-bold text-[var(--text)]">{participant.displayName}</h3>
+        <div className="flex items-center justify-center gap-2">
+          <h3 className="font-bold text-[var(--text)]">{participant.displayName}</h3>
+          {!isLocal && friendRelation === 'none' && (
+            <button
+              onClick={onSendFriendRequest}
+              disabled={friendRequestPending}
+              className="p-1 rounded-md bg-[var(--accent)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all disabled:opacity-50"
+              title="Enviar solicitud de amistad"
+              aria-label="Enviar solicitud de amistad"
+            >
+              <UserPlus size={12} />
+            </button>
+          )}
+          {!isLocal && friendRelation === 'sent' && (
+            <span
+              className="p-1 rounded-md bg-[var(--accent)] text-[var(--muted)]"
+              title="Solicitud enviada"
+              aria-label="Solicitud enviada"
+            >
+              <Clock size={12} />
+            </span>
+          )}
+        </div>
         <p className="text-xs text-[var(--muted)] capitalize">
           {participant.isMuted ? 'En silencio' : (participant.mood === 'none' ? 'Conectado' : participant.mood)}
         </p>
@@ -142,7 +175,7 @@ function ParticipantCard({
   );
 }
 
-export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps) {
+export default function CallRoom({ callId, userProfile, onLeave, friends, sent, sendFriendRequest }: CallRoomProps) {
   const [participants, setParticipants] = useState<{ [uid: string]: Participant }>({});
   const [isMuted, setIsMuted] = useState(false);
   const [currentMood, setCurrentMood] = useState<Mood>('none');
@@ -157,6 +190,28 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
   // mood/mute se preserva entre reconexiones para no perder cambios recientes.
   const [reconnectTick, setReconnectTick] = useState(0);
   const [isEndingCall, setIsEndingCall] = useState(false);
+  const [friendRequestPending, setFriendRequestPending] = useState<Set<string>>(new Set());
+
+  const friendRelationOf = useCallback((uid: string): FriendRelation => {
+    if (friends.some((f) => f.otherUid === uid)) return 'friends';
+    if (sent.some((f) => f.otherUid === uid)) return 'sent';
+    return 'none';
+  }, [friends, sent]);
+
+  const handleSendFriendRequest = useCallback(async (uid: string) => {
+    if (friendRequestPending.has(uid)) return;
+    setFriendRequestPending((prev) => new Set(prev).add(uid));
+    try {
+      await sendFriendRequest(uid);
+    } catch (err) {
+      console.error('Error enviando solicitud:', err);
+      setFriendRequestPending((prev) => {
+        const next = new Set(prev);
+        next.delete(uid);
+        return next;
+      });
+    }
+  }, [friendRequestPending, sendFriendRequest]);
 
   const joinedAtRef = useRef<string>(new Date().toISOString());
   const moodRef = useRef<Mood>('none');
@@ -572,6 +627,9 @@ export default function CallRoom({ callId, userProfile, onLeave }: CallRoomProps
                 isLocal={p.uid === userProfile.uid}
                 volume={localVolumes[p.uid]}
                 onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+                friendRelation={friendRelationOf(p.uid)}
+                onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
+                friendRequestPending={friendRequestPending.has(p.uid)}
               />
             );
           })}
