@@ -1074,31 +1074,90 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
               })()}
             </AnimatePresence>
           </div>
-          {/* Sidebar: participantes compactos */}
-          <div className="md:w-72 flex md:flex-col flex-row gap-3 md:overflow-y-auto overflow-x-auto scrollbar-thin md:max-h-[calc(100vh-16rem)]">
-            <AnimatePresence>
-              {Object.values(participants).map((p: Participant) => {
-                const display: Participant = p.uid === userProfile.uid
-                  ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
-                  : p;
-                return (
-                  <ParticipantCard
-                    key={p.uid}
-                    participant={display}
-                    stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
-                    isLocal={p.uid === userProfile.uid}
-                    volume={localVolumes[p.uid]}
-                    onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
-                    isMutedByListener={localMuted[p.uid] ?? false}
-                    onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
-                    friendRelation={friendRelationOf(p.uid)}
-                    onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
-                    friendRequestPending={friendRequestPending.has(p.uid)}
-                    compact
-                  />
-                );
-              })}
-            </AnimatePresence>
+          {/* Sidebar: participantes (scroll) + controles fijos al fondo */}
+          <div className="md:w-72 flex md:flex-col flex-row md:h-[calc(100vh-10rem)]">
+            {/* Lista de participantes — scrollea independientemente */}
+            <div className="flex-1 flex md:flex-col flex-row gap-3 md:overflow-y-auto overflow-x-auto scrollbar-thin min-h-0">
+              <AnimatePresence>
+                {Object.values(participants).map((p: Participant) => {
+                  const display: Participant = p.uid === userProfile.uid
+                    ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
+                    : p;
+                  return (
+                    <ParticipantCard
+                      key={p.uid}
+                      participant={display}
+                      stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+                      isLocal={p.uid === userProfile.uid}
+                      volume={localVolumes[p.uid]}
+                      onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+                      isMutedByListener={localMuted[p.uid] ?? false}
+                      onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
+                      friendRelation={friendRelationOf(p.uid)}
+                      onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
+                      friendRequestPending={friendRequestPending.has(p.uid)}
+                      compact
+                    />
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+
+            {/* Controles fijos al fondo de la sidebar */}
+            <div className="hidden md:flex flex-col gap-2 flex-shrink-0 pt-3">
+              <div className="card p-3 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setIsMuted(prev => !prev)}
+                  className={cn(
+                    "p-3 rounded-full transition-all",
+                    isMuted ? "bg-red-100 text-red-600" : "bg-[var(--accent)] text-[var(--text)]"
+                  )}
+                  aria-label={isMuted ? "Activar micrófono" : "Silenciar micrófono"}
+                  title={isMuted ? "Activar micrófono (M)" : "Silenciar (M)"}
+                >
+                  {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                </button>
+                <button
+                  onClick={handleToggleScreenShare}
+                  disabled={outgoingShareRequest}
+                  className={cn(
+                    "p-3 rounded-full transition-all",
+                    localScreenStream
+                      ? "bg-[var(--primary)] text-white"
+                      : outgoingShareRequest
+                        ? "bg-amber-100 text-amber-700 animate-pulse"
+                        : activeSharer
+                          ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                          : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
+                  )}
+                  aria-label={localScreenStream ? "Detener compartir" : "Compartir pantalla"}
+                  title={
+                    localScreenStream ? "Detener compartir pantalla"
+                      : outgoingShareRequest ? "Esperando respuesta..."
+                        : activeSharer ? "Solicitar compartir"
+                          : "Compartir pantalla"
+                  }
+                >
+                  {localScreenStream ? <MonitorOff size={20} /> : <Monitor size={20} />}
+                </button>
+              </div>
+              <div className="card p-2 flex flex-wrap items-center justify-center gap-1">
+                {MOODS.map((m) => (
+                  <button
+                    key={m.type}
+                    onClick={() => handleMoodSelect(m.type)}
+                    className={cn(
+                      "p-1.5 rounded-full text-lg hover:bg-[var(--accent)] transition-all",
+                      currentMood === m.type ? "bg-[var(--primary)] scale-110" : ""
+                    )}
+                    title={m.label}
+                    aria-label={`Sentirse ${m.label}`}
+                  >
+                    {m.emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </main>
       ) : (
@@ -1130,7 +1189,10 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         </main>
       )}
 
-      <footer className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 p-4 card">
+      <footer className={cn(
+        "mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 p-4 card",
+        activeSharer && "md:hidden" // En hero mode los controles están en la sidebar (desktop)
+      )}>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsMuted(prev => !prev)}
