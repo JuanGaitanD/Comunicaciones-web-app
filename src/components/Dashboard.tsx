@@ -157,11 +157,11 @@ export default function Dashboard({
       const newSearch = params.toString();
       const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
       window.history.replaceState({}, '', newUrl);
-      if (error || !data) {
+      if (error || typeof data !== 'string') {
         setInviteError(error?.message ?? 'Invitación inválida o llamada terminada');
         return;
       }
-      onJoinCall(data as string);
+      onJoinCall(data);
     })();
     // Solo al montar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
