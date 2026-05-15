@@ -152,6 +152,38 @@ export default function FriendsPanel({
         </div>
       </div>
 
+      {/* Notification invite banner */}
+      <AnimatePresence>
+        {notifPermission === 'default' && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -10, height: 0 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 220 }}
+            className="overflow-hidden flex-shrink-0"
+          >
+            <div className="mx-4 mt-3 mb-1 flex items-center gap-3 bg-[var(--accent)] border border-[var(--border)] rounded-xl px-4 py-3">
+              <motion.div
+                animate={{ scale: [1, 1.15, 1] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                className="text-[var(--primary)] flex-shrink-0"
+              >
+                <Bell size={16} />
+              </motion.div>
+              <p className="flex-1 text-xs text-[var(--muted)] leading-relaxed">
+                Activa las notificaciones para saber cuando te escriben.
+              </p>
+              <button
+                onClick={requestNotificationPermission}
+                className="text-xs font-semibold text-[var(--primary)] hover:opacity-70 transition-opacity flex-shrink-0 whitespace-nowrap"
+              >
+                Activar
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Search */}
       <div className="p-4 border-b border-[var(--border)]">
         <div className="relative">
