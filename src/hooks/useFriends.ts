@@ -99,8 +99,17 @@ export function useFriends(myUid: string | null) {
     setLoading(true);
     refetch();
 
+    // Eliminar cualquier canal con el mismo nombre antes de crear uno nuevo.
+    // Necesario en React StrictMode (doble-invoke del effect) y al cambiar de cuenta:
+    // Supabase devuelve el canal existente si el topic coincide, y llamar .on()
+    // sobre uno ya suscrito lanza "cannot add callbacks after subscribe()".
+    const channelName = `my-friendships-${myUid}`;
+    supabase.getChannels()
+      .filter((c) => c.topic === `realtime:${channelName}`)
+      .forEach((c) => supabase.removeChannel(c));
+
     const ch = supabase
-      .channel(`my-friendships-${myUid}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'friendships', filter: `user_a_id=eq.${myUid}` },
@@ -160,6 +169,29 @@ export function useFriends(myUid: string | null) {
     async (targetUid: string) => {
       if (!myUid) return;
       const [a, b] = [myUid, targetUid].sort();
+
+      // Verificar si ya existe un registro entre estos dos usuarios.
+      const { data: existing } = await supabase
+        .from('friendships')
+        .select('status, requested_by')
+        .eq('user_a_id', a)
+        .eq('user_b_id', b)
+        .maybeSingle();
+
+      if (existing) {
+        // Si el otro ya nos envió una solicitud pendiente → aceptar inmediatamente.
+        if (existing.status === 'pending' && existing.requested_by === targetUid) {
+          const { error } = await supabase
+            .from('friendships')
+            .update({ status: 'accepted' })
+            .eq('user_a_id', a)
+            .eq('user_b_id', b);
+          if (error) throw error;
+        }
+        // Ya existe (pendiente nuestra, aceptada, bloqueada): ignorar.
+        return;
+      }
+
       const { error } = await supabase.from('friendships').insert({
         user_a_id: a,
         user_b_id: b,
@@ -167,7 +199,7 @@ export function useFriends(myUid: string | null) {
         status: 'pending',
       });
       if (error) {
-        if (error.code === '23505') throw new Error('No se pudo enviar la solicitud.');
+        if (error.code === '23505') return;
         throw error;
       }
     },
