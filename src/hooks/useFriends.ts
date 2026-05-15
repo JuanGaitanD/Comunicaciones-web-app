@@ -159,7 +159,10 @@ export function useFriends(myUid: string | null) {
         requested_by: myUid,
         status: 'pending',
       });
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505') throw new Error('No se pudo enviar la solicitud.');
+        throw error;
+      }
     },
     [myUid]
   );

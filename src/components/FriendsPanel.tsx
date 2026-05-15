@@ -47,6 +47,25 @@ export default function FriendsPanel({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pending, setPending] = useState<Map<string, boolean>>(new Map());
 
+  // Deriva la relación actual en tiempo real desde el estado del hook (no del snapshot del search).
+  function liveRelation(uid: string): 'friends' | 'sent' | 'received' | 'none' {
+    if (friends.some((f) => f.otherUid === uid)) return 'friends';
+    if (sent.some((f) => f.otherUid === uid)) return 'sent';
+    if (received.some((f) => f.otherUid === uid)) return 'received';
+    return 'none';
+  }
+
+  // Limpia `pending` para uids que ya no están en `sent` (rechazados/cancelados por CDC).
+  useEffect(() => {
+    setPending((prev) => {
+      const next = new Map(prev);
+      for (const uid of [...next.keys()]) {
+        if (!sent.some((f) => f.otherUid === uid)) next.delete(uid);
+      }
+      return next;
+    });
+  }, [sent]);
+
   const runSearch = useCallback(
     async (q: string) => {
       setSearchError('');
@@ -82,12 +101,11 @@ export default function FriendsPanel({
     [pending, sendRequest]
   );
 
-  function relationLabel(r: SearchResult): string {
-    if (r.relation === 'friends') return 'Ya son amigos';
-    if (r.relation === 'sent') return 'Solicitud enviada';
-    if (r.relation === 'received') return 'Aceptar';
-    if (r.relation === 'blocked') return 'Bloqueado';
-    return pending.get(r.uid) ? 'Enviando...' : 'Agregar';
+  function relationLabel(rel: ReturnType<typeof liveRelation>): string {
+    if (rel === 'friends') return 'Ya son amigos';
+    if (rel === 'sent') return 'Solicitud enviada';
+    if (rel === 'received') return 'Aceptar';
+    return 'Agregar';
   }
 
   return (
@@ -133,37 +151,44 @@ export default function FriendsPanel({
               exit={{ opacity: 0, y: -6 }}
               className="mt-2 space-y-1"
             >
-              {searchResults.map((r) => (
-                <motion.li
-                  key={r.uid}
-                  layout
-                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg)] border border-[var(--border)]"
-                >
-                  <img
-                    src={r.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${r.uid}`}
-                    alt={r.displayName}
-                    referrerPolicy="no-referrer"
-                    className="w-9 h-9 rounded-full flex-shrink-0"
-                  />
-                  <span className="flex-1 text-sm font-medium text-[var(--text)] truncate">{r.displayName}</span>
-                  <button
-                    disabled={r.relation !== 'none' || pending.get(r.uid)}
-                    onClick={() => r.relation === 'none' && handleSendRequest(r.uid)}
-                    className={cn(
-                      'text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex-shrink-0',
-                      r.relation === 'none' && !pending.get(r.uid)
-                        ? 'bg-[var(--primary)] text-white hover:opacity-90'
-                        : 'bg-[var(--accent)] text-[var(--muted)] cursor-default'
-                    )}
+              {searchResults.map((r) => {
+                const rel = liveRelation(r.uid);
+                const isPending = pending.get(r.uid) ?? false;
+                const canAdd = rel === 'none' && !isPending;
+                return (
+                  <motion.li
+                    key={r.uid}
+                    layout
+                    className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg)] border border-[var(--border)]"
                   >
-                    {r.relation === 'none' ? (
-                      pending.get(r.uid) ? 'Enviando...' : <span className="flex items-center gap-1"><UserPlus size={12} />Agregar</span>
-                    ) : (
-                      relationLabel(r)
-                    )}
-                  </button>
-                </motion.li>
-              ))}
+                    <img
+                      src={r.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${r.uid}`}
+                      alt={r.displayName}
+                      referrerPolicy="no-referrer"
+                      className="w-9 h-9 rounded-full flex-shrink-0"
+                    />
+                    <span className="flex-1 text-sm font-medium text-[var(--text)] truncate">{r.displayName}</span>
+                    <button
+                      disabled={!canAdd}
+                      onClick={() => canAdd && handleSendRequest(r.uid)}
+                      className={cn(
+                        'text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex-shrink-0',
+                        canAdd
+                          ? 'bg-[var(--primary)] text-white hover:opacity-90'
+                          : 'bg-[var(--accent)] text-[var(--muted)] cursor-default'
+                      )}
+                    >
+                      {rel === 'none' ? (
+                        isPending
+                          ? 'Enviando...'
+                          : <span className="flex items-center gap-1"><UserPlus size={12} />Agregar</span>
+                      ) : (
+                        relationLabel(rel)
+                      )}
+                    </button>
+                  </motion.li>
+                );
+              })}
             </motion.ul>
           )}
           {query.trim() && searchResults.length === 0 && !loading && (
