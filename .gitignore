@@ -1,0 +1,12 @@
+node_modules
+src
+public
+supabase
+docs
+.claude
+.vite
+dist
+*.config.*
+*.json
+*.md
+.env*
