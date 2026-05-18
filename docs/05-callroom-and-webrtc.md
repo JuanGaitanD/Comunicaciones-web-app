@@ -219,6 +219,74 @@ Usuario B pulsa "Solicitar"
 
 ---
 
+## TURN y NAT traversal
+
+### Por qué se necesita un servidor TURN
+
+WebRTC negocia rutas con **ICE**, probando candidatos en este orden:
+
+1. **host** — IP local (mismo LAN).
+2. **srflx** — IP pública descubierta vía STUN (cuando el NAT es "permisivo").
+3. **relay** — IP de un servidor TURN que reenvía el tráfico (último recurso).
+
+Mientras la app solo tuvo STUN (`stun.l.google.com`), las llamadas dentro de una misma red funcionaban, pero **fallaba el audio entre peers en países o ISPs distintos** detrás de **NAT simétrico** (típico con CGNAT en LatAm). Caso reportado: usuario en Colombia ↔ usuario en El Salvador, equipos correctos, WhatsApp sí funcionaba (porque WhatsApp tiene TURN propio).
+
+Sin TURN no hay ruta de respaldo y el `RTCPeerConnection` queda en `failed` silenciosamente.
+
+### Configuración
+
+Cuatro variables en `.env.local` (y mismas claves en el entorno de build cuando se publique a GitHub Pages):
+
+```
+VITE_TURN_URL=turn:standard.relay.metered.ca:80
+VITE_TURN_URL_TLS=turns:standard.relay.metered.ca:443?transport=tcp
+VITE_TURN_USERNAME=<usuario>
+VITE_TURN_CREDENTIAL=<credencial>
+```
+
+- **URL UDP/3478:** ruta normal, menor latencia.
+- **URL TLS/443:** fallback para redes corporativas/hoteles que bloquean UDP. TURN sobre TLS pasa por casi cualquier firewall.
+- Si las cuatro variables están presentes, `buildIceServers()` en [src/hooks/useWebRTC.ts](../src/hooks/useWebRTC.ts) agrega el TURN; si faltan, emite un `console.warn` y se cae a STUN-only (modo dev local).
+
+### Crear cuenta en Metered.ca
+
+1. Registrarse en https://www.metered.ca/ (free tier ≈ 50GB/mes, sobrado para portafolio).
+2. Crear una app TURN en el dashboard → copiar las credenciales generadas.
+3. Pegarlas en `.env.local`. Para deploy a GitHub Pages, ponerlas en el entorno desde donde se ejecuta `npm run build`: Vite las inlinea en el bundle final.
+
+> Nota: las credenciales TURN quedan visibles en el JS publicado (son secrets de cliente, no de servidor). Para producción real conviene rotar credenciales o emitirlas dinámicamente vía la API de Metered con TTL corto. Para una demo de portafolio el riesgo es aceptable.
+
+### Verificación con `chrome://webrtc-internals`
+
+Durante una llamada, abrir `chrome://webrtc-internals` → entrar en la PC activa → mirar `Stats Tables` → `ICE Candidate Pair`. Debe aparecer al menos un par de candidatos con `local-candidate-type: relay`. Si nunca aparece `relay`, las credenciales TURN están mal o no se cargaron.
+
+Test extremo: cambiar temporalmente `buildIceServers()` para devolver `{ ...config, iceTransportPolicy: 'relay' }`. Eso fuerza a usar TURN exclusivamente. Si el audio sigue funcionando, el TURN está bien configurado y resuelve el caso Colombia ↔ El Salvador.
+
+### Indicador visual de estado de conexión
+
+`useWebRTC` ahora expone `peerConnectionStates: { [uid]: RTCPeerConnectionState }`. Cada `RTCPeerConnection` actualiza su entrada vía `onconnectionstatechange`. `ParticipantCard` muestra un badge cuando el estado merece atención:
+
+| Estado | Indicador |
+|---|---|
+| `new` / `connecting` | punto ámbar · "Conectando…" |
+| `connected` | sin badge (UI limpia) |
+| `disconnected` | punto naranja · "Reconectando…" |
+| `failed` | punto rojo · "Sin audio (red bloqueada)" |
+
+Si un usuario vuelve a reportar problemas, el badge le da contexto accionable ("está en failed → probar otra red / desactivar VPN").
+
+### Constraints de audio
+
+`getUserMedia` ahora pide `echoCancellation`, `noiseSuppression` y `autoGainControl: true`. Mejora la calidad cuando sí hay conexión, sin costo de implementación.
+
+### Mejoras futuras
+
+- **ICE restart automático**: al detectar `connectionState === 'failed'`, llamar `pc.restartIce()` antes de cerrar. Permite recuperarse de cambios de red (cambiar WiFi/4G) sin reiniciar la llamada.
+- **Credenciales TURN dinámicas** vía API de Metered: TTL corto, no expuestas en el bundle.
+- **Métricas de calidad**: leer `pc.getStats()` y mostrar jitter / packet loss en la card del peer.
+
+---
+
 ## Resultado final
 
 - ✅ `src/hooks/useWebRTC.ts`: screen share con `addTrack`/`removeTrack` + renegociación manual. `ontrack` discriminado por `kind`. `peerUidsKey` para cleanup reactivo de peers desaparecidos.

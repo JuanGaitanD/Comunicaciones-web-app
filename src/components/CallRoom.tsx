@@ -45,6 +45,26 @@ interface PresenceItem {
   joinedAt: string;
 }
 
+// Mapeo del RTCPeerConnectionState a un descriptor visual. Solo retornamos algo
+// cuando hay información útil para el usuario: 'connected' y casos sin estado
+// no muestran nada para no saturar la UI cuando todo funciona.
+function describeConnectionState(state: RTCPeerConnectionState | undefined): {
+  color: string;
+  label: string;
+} | null {
+  switch (state) {
+    case 'new':
+    case 'connecting':
+      return { color: 'bg-amber-400', label: 'Conectando…' };
+    case 'disconnected':
+      return { color: 'bg-orange-500', label: 'Reconectando…' };
+    case 'failed':
+      return { color: 'bg-red-500', label: 'Sin audio (red bloqueada)' };
+    default:
+      return null;
+  }
+}
+
 function ParticipantCard({
   participant,
   stream,
@@ -58,6 +78,7 @@ function ParticipantCard({
   onSendFriendRequest,
   friendRequestPending,
   compact,
+  connectionState,
 }: {
   participant: Participant;
   stream: MediaStream | null;
@@ -71,7 +92,9 @@ function ParticipantCard({
   onSendFriendRequest?: () => void;
   friendRequestPending?: boolean;
   compact?: boolean;
+  connectionState?: RTCPeerConnectionState;
 }) {
+  const connDesc = !isLocal ? describeConnectionState(connectionState) : null;
   const audioLevel = useAudioLevel(stream);
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -146,6 +169,15 @@ function ParticipantCard({
           <p className="text-[10px] text-[var(--muted)] capitalize truncate">
             {participant.isMuted ? 'En silencio' : (participant.mood === 'none' ? 'Conectado' : participant.mood)}
           </p>
+          {connDesc && (
+            <p
+              className="flex items-center gap-1 text-[10px] text-[var(--muted)] truncate"
+              title={connDesc.label}
+            >
+              <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', connDesc.color)} />
+              <span className="truncate">{connDesc.label}</span>
+            </p>
+          )}
         </div>
         {!isLocal && <audio ref={audioRef} autoPlay style={{ display: 'none' }} />}
       </motion.div>
@@ -243,6 +275,15 @@ function ParticipantCard({
         <p className="text-xs text-[var(--muted)] capitalize">
           {participant.isMuted ? 'En silencio' : (participant.mood === 'none' ? 'Conectado' : participant.mood)}
         </p>
+        {connDesc && (
+          <p
+            className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)]"
+            title={connDesc.label}
+          >
+            <span className={cn('w-2 h-2 rounded-full', connDesc.color)} />
+            {connDesc.label}
+          </p>
+        )}
       </div>
 
       {!isLocal && (
@@ -445,6 +486,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     remoteScreenStreams,
     startScreenShare,
     stopScreenShare,
+    peerConnectionStates,
   } = useWebRTC(callId, userProfile.uid, channel, peerUidsKey);
 
   // UID del participante que está compartiendo pantalla (o null). Se usa para
@@ -1096,6 +1138,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                       friendRelation={friendRelationOf(p.uid)}
                       onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
                       friendRequestPending={friendRequestPending.has(p.uid)}
+                      connectionState={peerConnectionStates[p.uid]}
                       compact
                     />
                   );
@@ -1182,6 +1225,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                   friendRelation={friendRelationOf(p.uid)}
                   onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
                   friendRequestPending={friendRequestPending.has(p.uid)}
+                  connectionState={peerConnectionStates[p.uid]}
                 />
               );
             })}

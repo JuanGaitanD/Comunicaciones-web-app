@@ -6,12 +6,30 @@ type Signal =
   | { from: string; to: string; type: 'answer'; data: string }
   | { from: string; to: string; type: 'candidate'; data: string };
 
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
+// STUN solo basta cuando ambos peers están detrás de NAT permisivo. En LatAm
+// (y muchas redes corporativas/hoteles) el NAT es simétrico y los paquetes
+// nunca se encuentran sin un relay TURN. Las credenciales se leen en build
+// time desde import.meta.env; si faltan se cae a STUN-only y se avisa por
+// consola para que sea visible en dev.
+function buildIceServers(): RTCConfiguration {
+  const servers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
+  ];
+  const turnUrl = import.meta.env.VITE_TURN_URL;
+  const turnUrlTls = import.meta.env.VITE_TURN_URL_TLS;
+  const username = import.meta.env.VITE_TURN_USERNAME;
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+  if (turnUrl && username && credential) {
+    const urls = turnUrlTls ? [turnUrl, turnUrlTls] : [turnUrl];
+    servers.push({ urls, username, credential });
+  } else {
+    console.warn(
+      'TURN no configurado: las llamadas entre redes restrictivas pueden quedarse sin audio.'
+    );
+  }
+  return { iceServers: servers };
+}
 
 export function useWebRTC(
   callId: string | null,
@@ -26,6 +44,9 @@ export function useWebRTC(
   const [remoteStreams, setRemoteStreams] = useState<{ [uid: string]: MediaStream }>({});
   const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
   const [remoteScreenStreams, setRemoteScreenStreams] = useState<{ [uid: string]: MediaStream }>({});
+  const [peerConnectionStates, setPeerConnectionStates] = useState<{
+    [uid: string]: RTCPeerConnectionState;
+  }>({});
   const peerConnections = useRef<{ [uid: string]: RTCPeerConnection }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -39,7 +60,13 @@ export function useWebRTC(
     let cancelled = false;
     (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -63,6 +90,7 @@ export function useWebRTC(
       peerConnections.current = {};
       setRemoteStreams({});
       setRemoteScreenStreams({});
+      setPeerConnectionStates({});
       setLocalStream(null);
       setLocalScreenStream(null);
     };
@@ -93,6 +121,11 @@ export function useWebRTC(
       for (const uid of toRemove) delete next[uid];
       return next;
     });
+    setPeerConnectionStates((prev) => {
+      const next = { ...prev };
+      for (const uid of toRemove) delete next[uid];
+      return next;
+    });
   }, [peerUidsKey]);
 
   const sendSignal = useCallback(
@@ -105,7 +138,7 @@ export function useWebRTC(
 
   const createPeerConnection = useCallback(
     (peerUid: string): RTCPeerConnection => {
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const pc = new RTCPeerConnection(buildIceServers());
 
       pc.onicecandidate = (event) => {
         if (event.candidate && userId) {
@@ -144,6 +177,7 @@ export function useWebRTC(
       };
 
       pc.onconnectionstatechange = () => {
+        setPeerConnectionStates((prev) => ({ ...prev, [peerUid]: pc.connectionState }));
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           setRemoteStreams((prev) => {
             const next = { ...prev };
@@ -332,5 +366,6 @@ export function useWebRTC(
     remoteScreenStreams,
     startScreenShare,
     stopScreenShare,
+    peerConnectionStates,
   };
 }
