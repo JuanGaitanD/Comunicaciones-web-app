@@ -11,6 +11,14 @@ type Signal =
 // nunca se encuentran sin un relay TURN. Las credenciales se leen en build
 // time desde import.meta.env; si faltan se cae a STUN-only y se avisa por
 // consola para que sea visible en dev.
+// El constructor de RTCPeerConnection rechaza URLs sin esquema (`turn:`/`turns:`).
+// Normalizamos defensivamente para que un .env mal rellenado no tumbe la app.
+function normalizeTurnUrl(raw: string, tls: boolean): string {
+  const trimmed = raw.trim();
+  if (/^(turn|turns|stun|stuns):/i.test(trimmed)) return trimmed;
+  return `${tls ? 'turns' : 'turn'}:${trimmed}`;
+}
+
 function buildIceServers(): RTCConfiguration {
   const servers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -21,7 +29,8 @@ function buildIceServers(): RTCConfiguration {
   const username = import.meta.env.VITE_TURN_USERNAME;
   const credential = import.meta.env.VITE_TURN_CREDENTIAL;
   if (turnUrl && username && credential) {
-    const urls = turnUrlTls ? [turnUrl, turnUrlTls] : [turnUrl];
+    const urls = [normalizeTurnUrl(turnUrl, false)];
+    if (turnUrlTls) urls.push(normalizeTurnUrl(turnUrlTls, true));
     servers.push({ urls, username, credential });
   } else {
     console.warn(

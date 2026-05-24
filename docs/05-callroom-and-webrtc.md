@@ -248,6 +248,8 @@ VITE_TURN_CREDENTIAL=<credencial>
 - **URL TLS/443:** fallback para redes corporativas/hoteles que bloquean UDP. TURN sobre TLS pasa por casi cualquier firewall.
 - Si las cuatro variables están presentes, `buildIceServers()` en [src/hooks/useWebRTC.ts](../src/hooks/useWebRTC.ts) agrega el TURN; si faltan, emite un `console.warn` y se cae a STUN-only (modo dev local).
 
+> **Importante — esquema de las URLs.** El constructor de `RTCPeerConnection` rechaza con `SyntaxError` cualquier URL que no empiece por `turn:`, `turns:`, `stun:` o `stuns:`. Un descuido como `VITE_TURN_URL=relay.metered.ca:80` (sin prefijo) tumba **todas** las llamadas, no solo el TURN: el peer connection nunca llega a crearse y por extensión también falla el screen share. Por eso `buildIceServers()` pasa las URLs por `normalizeTurnUrl()` antes de instanciar la PC: si falta el esquema lo agrega (`turn:` para la URL plana, `turns:` para la TLS). Aún así, escribir las URLs ya con prefijo en `.env` es la forma correcta — el normalize es una red de seguridad, no una excusa.
+
 ### Crear cuenta en Metered.ca
 
 1. Registrarse en https://www.metered.ca/ (free tier ≈ 50GB/mes, sobrado para portafolio).
