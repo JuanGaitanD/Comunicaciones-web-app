@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff } from 'lucide-react';
-import { useWebRTC } from '../hooks/useWebRTC';
+import { useWebRTC, canShareScreen } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { useCallMessages } from '../hooks/useCallMessages';
 import { Participant, Mood, UserProfile, FriendWithProfile } from '../types';
@@ -1162,23 +1162,26 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                 </button>
                 <button
                   onClick={handleToggleScreenShare}
-                  disabled={outgoingShareRequest}
+                  disabled={outgoingShareRequest || !canShareScreen}
                   className={cn(
                     "p-3 rounded-full transition-all",
-                    localScreenStream
-                      ? "bg-[var(--primary)] text-white"
-                      : outgoingShareRequest
-                        ? "bg-amber-100 text-amber-700 animate-pulse"
-                        : activeSharer
-                          ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                          : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
+                    !canShareScreen
+                      ? "bg-[var(--accent)] text-[var(--muted)] opacity-50 cursor-not-allowed"
+                      : localScreenStream
+                        ? "bg-[var(--primary)] text-white"
+                        : outgoingShareRequest
+                          ? "bg-amber-100 text-amber-700 animate-pulse"
+                          : activeSharer
+                            ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                            : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
                   )}
-                  aria-label={localScreenStream ? "Detener compartir" : "Compartir pantalla"}
+                  aria-label={!canShareScreen ? "Compartir pantalla no disponible en este navegador" : localScreenStream ? "Detener compartir" : "Compartir pantalla"}
                   title={
-                    localScreenStream ? "Detener compartir pantalla"
-                      : outgoingShareRequest ? "Esperando respuesta..."
-                        : activeSharer ? "Solicitar compartir"
-                          : "Compartir pantalla"
+                    !canShareScreen ? "Compartir pantalla no está disponible en este navegador (típico de móviles)"
+                      : localScreenStream ? "Detener compartir pantalla"
+                        : outgoingShareRequest ? "Esperando respuesta..."
+                          : activeSharer ? "Solicitar compartir"
+                            : "Compartir pantalla"
                   }
                 >
                   {localScreenStream ? <MonitorOff size={20} /> : <Monitor size={20} />}
@@ -1251,36 +1254,41 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           </button>
           <button
             onClick={handleToggleScreenShare}
-            disabled={outgoingShareRequest}
+            disabled={outgoingShareRequest || !canShareScreen}
             className={cn(
               "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
-              localScreenStream
-                ? "bg-[var(--primary)] text-white"
-                : outgoingShareRequest
-                  ? "bg-amber-100 text-amber-700 animate-pulse"
-                  : activeSharer
-                    ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                    : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
+              !canShareScreen
+                ? "bg-[var(--accent)] text-[var(--muted)] opacity-50 cursor-not-allowed"
+                : localScreenStream
+                  ? "bg-[var(--primary)] text-white"
+                  : outgoingShareRequest
+                    ? "bg-amber-100 text-amber-700 animate-pulse"
+                    : activeSharer
+                      ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                      : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
             )}
             aria-label={
-              localScreenStream ? "Detener compartir pantalla"
-                : outgoingShareRequest ? "Solicitando..."
-                  : activeSharer ? "Solicitar compartir pantalla"
-                    : "Compartir pantalla"
+              !canShareScreen ? "Compartir pantalla no disponible en este navegador"
+                : localScreenStream ? "Detener compartir pantalla"
+                  : outgoingShareRequest ? "Solicitando..."
+                    : activeSharer ? "Solicitar compartir pantalla"
+                      : "Compartir pantalla"
             }
             title={
-              localScreenStream ? "Detener compartir pantalla"
-                : outgoingShareRequest ? "Esperando respuesta..."
-                  : activeSharer ? "Solicitar compartir pantalla"
-                    : "Compartir pantalla"
+              !canShareScreen ? "Compartir pantalla no está disponible en este navegador (típico de móviles)"
+                : localScreenStream ? "Detener compartir pantalla"
+                  : outgoingShareRequest ? "Esperando respuesta..."
+                    : activeSharer ? "Solicitar compartir pantalla"
+                      : "Compartir pantalla"
             }
           >
             {localScreenStream ? <MonitorOff size={24} /> : <Monitor size={24} />}
             <span className="hidden sm:inline">
-              {localScreenStream ? 'Compartiendo'
-                : outgoingShareRequest ? 'Solicitando...'
-                  : activeSharer ? 'Solicitar'
-                    : 'Compartir'}
+              {!canShareScreen ? 'No disponible'
+                : localScreenStream ? 'Compartiendo'
+                  : outgoingShareRequest ? 'Solicitando...'
+                    : activeSharer ? 'Solicitar'
+                      : 'Compartir'}
             </span>
           </button>
         </div>

@@ -19,6 +19,13 @@ function normalizeTurnUrl(raw: string, tls: boolean): string {
   return `${tls ? 'turns' : 'turn'}:${trimmed}`;
 }
 
+// getDisplayMedia no existe en Safari iOS ni en la mayoría de versiones de
+// Chrome Android. Lo exponemos como flag para que la UI deshabilite el botón
+// de screen share en esos dispositivos en vez de fallar silenciosamente.
+export const canShareScreen =
+  typeof navigator !== 'undefined' &&
+  typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
 function buildIceServers(): RTCConfiguration {
   const servers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -311,6 +318,52 @@ export function useWebRTC(
     [userId, sendSignal]
   );
 
+  // Race condition típica de móvil: el navegador pide permiso del micrófono
+  // (popup táctil que tarda segundos), mientras tanto el otro peer ya envió la
+  // offer. handleSignal crea la PeerConnection con localStreamRef.current=null
+  // → la PC nace sin audio tracks. Cuando finalmente llega el stream, las PCs
+  // existentes quedan mudas y solo se arregla saliendo y volviendo a entrar.
+  //
+  // Este effect cierra la brecha: cuando localStream pasa a estar disponible,
+  // recorre las PCs ya creadas, agrega los tracks que falten y renegocia.
+  // Si la PC todavía está en medio de offer/answer (signalingState !== stable),
+  // espera al próximo signalingstatechange y renegocia entonces.
+  useEffect(() => {
+    if (!localStream) return;
+    const audioTracks = localStream.getAudioTracks();
+    if (audioTracks.length === 0) return;
+
+    const cleanups: Array<() => void> = [];
+
+    for (const [peerUid, pc] of Object.entries(peerConnections.current)) {
+      const hasAudioSender = pc.getSenders().some((s) => s.track?.kind === 'audio');
+      if (hasAudioSender) continue;
+
+      for (const track of audioTracks) {
+        pc.addTrack(track, localStream);
+      }
+
+      if (pc.signalingState === 'stable') {
+        void renegotiate(peerUid, pc);
+      } else {
+        const onStateChange = () => {
+          if (pc.signalingState === 'stable') {
+            pc.removeEventListener('signalingstatechange', onStateChange);
+            void renegotiate(peerUid, pc);
+          }
+        };
+        pc.addEventListener('signalingstatechange', onStateChange);
+        cleanups.push(() =>
+          pc.removeEventListener('signalingstatechange', onStateChange)
+        );
+      }
+    }
+
+    return () => {
+      for (const c of cleanups) c();
+    };
+  }, [localStream, renegotiate]);
+
   const stopScreenShare = useCallback(async () => {
     if (!screenStreamRef.current) return;
     // Snapshot por si el cleanup llega mid-await.
@@ -337,6 +390,12 @@ export function useWebRTC(
 
   const startScreenShare = useCallback(async () => {
     if (screenStreamRef.current) return; // ya activo
+    if (!canShareScreen) {
+      // Safari iOS / Chrome Android no tienen getDisplayMedia. La UI ya
+      // deshabilita el botón, pero defendemos por si llegamos por otro camino.
+      console.warn('getDisplayMedia no soportado en este navegador.');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,

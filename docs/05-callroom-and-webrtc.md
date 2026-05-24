@@ -281,6 +281,30 @@ Si un usuario vuelve a reportar problemas, el badge le da contexto accionable ("
 
 `getUserMedia` ahora pide `echoCancellation`, `noiseSuppression` y `autoGainControl: true`. Mejora la calidad cuando sí hay conexión, sin costo de implementación.
 
+---
+
+## Soporte de navegadores móviles
+
+### Race condition del micrófono — y por qué los móviles la sufrían más
+
+El otro peer manda la `offer` apenas detecta tu presencia. Si `getUserMedia` todavía está pendiente (típico en móvil: el diálogo de permisos requiere un toque del usuario, varios segundos), `createPeerConnection` se ejecuta con `localStreamRef.current = null` y la PC nace **sin audio tracks**. Cuando finalmente aceptás el permiso, las PCs ya creadas quedan mudas. Solo se reparaba saliendo y volviendo a entrar a la llamada (ahí el permiso ya estaba concedido y `getUserMedia` resolvía instantáneamente).
+
+**Fix:** un effect en [src/hooks/useWebRTC.ts](../src/hooks/useWebRTC.ts) observa `localStream`. Cuando pasa de `null` a un stream válido, recorre `peerConnections.current`, identifica PCs sin audio sender, agrega los tracks y dispara `renegotiate`. Si la PC todavía está en medio de offer/answer (signalingState distinto de `stable`), se suscribe a `signalingstatechange` y renegocia cuando vuelve a estable. Sin esto, el patrón "abrir desde el celular y aceptar permiso" dejaba al peer mudo hasta refresh.
+
+### Screen share no existe en móvil
+
+`navigator.mediaDevices.getDisplayMedia` no está implementado en Safari iOS (todas las versiones) ni en Chrome / Firefox Android (salvo tablets recientes con flags experimentales). El hook expone una constante exportada:
+
+```ts
+export const canShareScreen =
+  typeof navigator !== 'undefined' &&
+  typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+```
+
+`CallRoom` la importa y deshabilita los dos botones de "Compartir pantalla" (sidebar hero + footer) cuando es `false`, mostrando el tooltip "Compartir pantalla no está disponible en este navegador (típico de móviles)". `startScreenShare` también la chequea defensivamente como red de seguridad.
+
+Sin este chequeo el usuario tocaba el botón, `getDisplayMedia` lanzaba `TypeError` y solo aparecía un warn en consola — UX cero pista.
+
 ### Mejoras futuras
 
 - **ICE restart automático**: al detectar `connectionState === 'failed'`, llamar `pc.restartIce()` antes de cerrar. Permite recuperarse de cambios de red (cambiar WiFi/4G) sin reiniciar la llamada.
