@@ -129,6 +129,7 @@ Screen sharing usa `addTrack` + renegociación SDP manual por peer:
 | `npm run preview` | Sirve el build de prod. |
 | `npm run lint` | `tsc --noEmit` — typecheck completo. |
 | `npm run clean` | Borra `dist/`. |
+| `npm run deploy` | Build + publicación a la rama `gh-pages` vía git worktree. Ver [docs/09-deploy.md](docs/09-deploy.md). |
 
 ---
 
@@ -174,7 +175,11 @@ docs/
 ├── 05-callroom-and-webrtc.md
 ├── 06-profile-migration.md
 ├── 07-cleanup-firebase.md
-└── 08-verification.md
+├── 08-verification.md
+└── 09-deploy.md
+
+scripts/
+└── deploy-gh-pages.mjs       # publica dist/ en la rama gh-pages
 ```
 
 ---
@@ -200,6 +205,7 @@ Detalles, tabla comparativa y trade-offs: [docs/00-architecture-decision.md](doc
 - [06 · Migración de Profile](docs/06-profile-migration.md)
 - [07 · Limpieza de Firebase](docs/07-cleanup-firebase.md)
 - [08 · Verificación E2E + medición de cuotas](docs/08-verification.md)
+- [09 · Deploy a GitHub Pages](docs/09-deploy.md)
 
 ---
 
