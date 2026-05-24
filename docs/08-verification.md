@@ -102,6 +102,28 @@ Tras la migración: **≈15 escrituras** para la misma sesión. **Dos órdenes d
 
 ---
 
+## Compatibilidad con extensiones de traducción (Google Translate, DeepL, etc.)
+
+### El problema
+
+Cuando un usuario abre la app desde un navegador con Google Translate activo (típico en usuarios de habla no hispana), la extensión envuelve los nodos de texto en `<font>` tags propios. La próxima vez que React intenta reconciliar el árbol — por ejemplo al cerrar un modal, refrescar la lista de amigos o desmontar un participante de la llamada — `Node.removeChild` o `Node.insertBefore` recibe un padre que ya no corresponde, lanza `NotFoundError: Failed to execute 'removeChild' on 'Node'` y dispara el ErrorBoundary.
+
+Caso real reportado el 2026-05-24: un usuario en el extranjero recibió la pantalla del ErrorBoundary con el título mutado a "¡Unión Postal Universal!" — Google Translate había interpretado "¡Ups!" como las siglas "UPU" y re-traducido al español. Firma inequívoca de traducción interceptando el render.
+
+### Mitigación aplicada
+
+1. **`<html lang="es">`** en [index.html](../index.html). Chrome deja de proponer auto-traducción cuando el navegador del visitante también está en español.
+2. **Patch defensivo** en [src/main.tsx](../src/main.tsx) sobre `Node.prototype.removeChild` e `insertBefore`: si el nodo no es hijo del padre indicado, se loguea un warn y se devuelve sin tirar excepción. La app pierde fidelidad visual en casos extremos, pero no crashea. Es la misma mitigación que usan Twitter, Reddit y Pinterest. Issue de referencia: [facebook/react#11538](https://github.com/facebook/react/issues/11538).
+3. **`translate="no"`** en el `<div>` raíz del ErrorBoundary ([src/components/ErrorBoundary.tsx](../src/components/ErrorBoundary.tsx)): la pantalla de error nunca se traduce, garantizando que el botón "Recargar página" sigue accionable aunque la traducción haya causado el crash original.
+
+### Verificación
+
+- [ ] Abrir la app desde Chrome con `chrome://settings/languages` configurado para "Offer to translate pages in other languages". El bookmarklet `javascript:document.documentElement.lang='en';void(0)` simula un visitante extranjero.
+- [ ] Click derecho → "Translate to English". La UI se traduce, los textos cambian, pero no aparece el ErrorBoundary y los botones siguen funcionando.
+- [ ] Navegar entre dashboard, llamada, ajustes y de vuelta. En la consola pueden aparecer warns de `removeChild bloqueado` — eso es el patch trabajando, no un bug.
+
+---
+
 ## Estado del proyecto
 
 ✅ **Migración completa**. La app funciona sobre Supabase, el código no contiene rastros de Firebase, la documentación cuenta toda la historia. Listo como caso de estudio de portafolio.

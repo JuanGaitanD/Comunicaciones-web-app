@@ -46,12 +46,19 @@ export default class ErrorBoundary extends Component<Props, State> {
         }
       }
 
+      // translate="no" en el contenedor: el ErrorBoundary es justo el lugar
+      // donde queremos que NADA sea reescrito por Google Translate, porque a
+      // veces el crash original fue causado precisamente por la traducción.
+      // El botón debe quedar siempre legible y clickable.
       return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--bg)]">
+        <div
+          translate="no"
+          className="notranslate min-h-screen flex items-center justify-center p-4 bg-[var(--bg)]"
+        >
           <div className="card max-w-md w-full p-8 text-center space-y-4">
             <h2 className="text-2xl font-bold text-red-500">¡Ups!</h2>
             <p className="text-[var(--text)]">{errorMessage}</p>
-            <button 
+            <button
               onClick={() => window.location.reload()}
               className="btn-primary w-full"
             >
