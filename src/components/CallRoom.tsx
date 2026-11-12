@@ -2,13 +2,16 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff, Loader2, RefreshCw, WifiOff, type LucideIcon } from 'lucide-react';
 import { useWebRTC, canShareScreen } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { useCallMessages } from '../hooks/useCallMessages';
 import { Participant, Mood, UserProfile, FriendWithProfile } from '../types';
 import { cn } from '../lib/utils';
 import CallChatPanel from './CallChatPanel';
+import Boton from './ui/Boton';
+import ChipEstado from './ui/ChipEstado';
+import Medidor from './ui/Medidor';
 
 interface CallRoomProps {
   callId: string;
@@ -47,19 +50,21 @@ interface PresenceItem {
 
 // Mapeo del RTCPeerConnectionState a un descriptor visual. Solo retornamos algo
 // cuando hay información útil para el usuario: 'connected' y casos sin estado
-// no muestran nada para no saturar la UI cuando todo funciona.
+// no muestran nada para no saturar la UI cuando todo funciona. El estado se dice
+// con icono y texto, nunca solo con un punto de color.
 function describeConnectionState(state: RTCPeerConnectionState | undefined): {
-  color: string;
+  icono: LucideIcon;
+  tono: 'aviso' | 'peligro';
   label: string;
 } | null {
   switch (state) {
     case 'new':
     case 'connecting':
-      return { color: 'bg-amber-400', label: 'Conectando…' };
+      return { icono: Loader2, tono: 'aviso', label: 'Conectando…' };
     case 'disconnected':
-      return { color: 'bg-orange-500', label: 'Reconectando…' };
+      return { icono: RefreshCw, tono: 'aviso', label: 'Reconectando…' };
     case 'failed':
-      return { color: 'bg-red-500', label: 'Sin audio (red bloqueada)' };
+      return { icono: WifiOff, tono: 'peligro', label: 'Sin audio (red bloqueada)' };
     default:
       return null;
   }
@@ -101,6 +106,9 @@ function ParticipantCard({
 
   // En modo compact el hero ya muestra el video — no duplicar.
   const showingScreen = !compact && !!(participant.isSharingScreen && screenStream);
+  const speaking = !participant.isMuted && audioLevel > 0.1;
+  const moodEmoji = participant.mood !== 'none' ? MOODS.find((m) => m.type === participant.mood) : undefined;
+  const statusText = participant.isMuted ? 'En silencio' : speaking ? 'Hablando' : participant.mood === 'none' ? 'Conectado' : participant.mood;
 
   useEffect(() => {
     const el = videoRef.current;
@@ -128,70 +136,68 @@ function ParticipantCard({
     };
   }, [stream, isLocal, volume, isMutedByListener]);
 
-  /* ─── Modo compacto: layout horizontal reducido para sidebar ─── */
+  const avatarUrl = participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`;
+  const chipConexion = connDesc && (
+    <ChipEstado icono={connDesc.icono} tono={connDesc.tono}>
+      {connDesc.label}
+    </ChipEstado>
+  );
+
+  /* ─── Modo compacto: fila de 64 px para la barra lateral del héroe ─── */
   if (compact) {
     return (
       <motion.div
         layout
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="card p-3 flex items-center gap-3 relative"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.16 }}
+        className="card relative flex min-h-16 flex-none items-center gap-3 p-3 max-md:w-60"
       >
         <div className="relative flex-shrink-0">
           <img
-            src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
+            src={avatarUrl}
             alt={participant.displayName}
             referrerPolicy="no-referrer"
-            className={cn(
-              "w-10 h-10 rounded-full border-2 transition-all duration-300",
-              !participant.isMuted && audioLevel > 0.1 ? "border-[var(--primary)]" : "border-[var(--border)]"
-            )}
+            className={cn('h-10 w-10 rounded-full border-[3px]', speaking ? 'border-accion' : 'border-separador')}
           />
-          {participant.mood !== 'none' && (
-            <span className="absolute -top-1 -right-1 text-sm bg-[var(--card)] rounded-full shadow-sm z-10">
-              {MOODS.find(m => m.type === participant.mood)?.emoji}
+          {moodEmoji && (
+            <span role="img" aria-label={moodEmoji.label} className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-superficie text-xs">
+              {moodEmoji.emoji}
             </span>
           )}
-          {participant.isMuted && (
-            <div className="absolute -bottom-0.5 -right-0.5 bg-red-500 text-white p-0.5 rounded-full border border-[var(--card)] z-10">
-              <MicOff size={8} />
-            </div>
-          )}
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h3 className="font-semibold text-sm text-[var(--text)] truncate">{participant.displayName}</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="flex items-center gap-1.5 truncate text-sm font-semibold">
+            <span className="truncate">{participant.displayName}</span>
             {participant.isSharingScreen && (
-              <Monitor size={12} className="text-[var(--primary)] flex-shrink-0" />
+              <>
+                <Monitor size={16} className="flex-shrink-0 text-accion-tinta" aria-hidden="true" />
+                <span className="sr-only">Compartiendo pantalla</span>
+              </>
             )}
-          </div>
-          <p className="text-[10px] text-[var(--muted)] capitalize truncate">
-            {participant.isMuted ? 'En silencio' : (participant.mood === 'none' ? 'Conectado' : participant.mood)}
+          </h3>
+          <p className="flex items-center gap-1 truncate text-xs font-medium text-texto-secundario">
+            {participant.isMuted && <MicOff size={12} className="flex-none text-peligro-tinta" aria-hidden="true" />}
+            <span className="inline-block truncate first-letter:uppercase">{statusText}</span>
           </p>
-          {connDesc && (
-            <p
-              className="flex items-center gap-1 text-[10px] text-[var(--muted)] truncate"
-              title={connDesc.label}
-            >
-              <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', connDesc.color)} />
-              <span className="truncate">{connDesc.label}</span>
-            </p>
-          )}
+          {!isLocal && <div aria-live="polite">{chipConexion}</div>}
         </div>
+        {participant.isMuted ? null : <Medidor nivel={audioLevel} mini />}
         {!isLocal && <audio ref={audioRef} autoPlay style={{ display: 'none' }} />}
       </motion.div>
     );
   }
 
-  /* ─── Modo normal: layout vertical completo ─── */
+  /* ─── Modo normal: canal de la consola ─── */
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      className="card p-6 flex flex-col items-center space-y-4 relative"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16 }}
+      className="card relative flex flex-col items-center gap-3 p-4 text-center lg:min-h-[320px] lg:p-6"
     >
       {showingScreen ? (
         <div className="relative w-full">
@@ -200,114 +206,102 @@ function ParticipantCard({
             autoPlay
             playsInline
             muted={isLocal}
-            className="w-full aspect-video rounded-xl object-contain bg-black"
+            className="aspect-video w-full rounded-control bg-black object-contain"
           />
-          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 text-white text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md backdrop-blur-sm">
-            <Monitor size={11} /> Compartiendo
-          </div>
+          <ChipEstado icono={Monitor} className="absolute left-2 top-2 !bg-superficie !text-texto">
+            Compartiendo
+          </ChipEstado>
           {participant.isMuted && (
-            <div className="absolute bottom-2 right-2 bg-red-500 text-white p-1 rounded-full border-2 border-[var(--card)] z-20">
+            <span className="absolute bottom-2 right-2 grid h-6 w-6 place-items-center rounded-full bg-peligro text-sobre-peligro" aria-hidden="true">
               <MicOff size={14} />
-            </div>
+            </span>
           )}
         </div>
       ) : (
         <div className="relative">
-          <motion.div
-            animate={{
-              scale: participant.isMuted ? 1 : 1 + (audioLevel * 0.3),
-              opacity: participant.isMuted ? 0 : audioLevel > 0.1 ? 0.6 : 0,
-            }}
-            className="absolute inset-0 rounded-full border-4 border-[var(--primary)] blur-sm"
-          />
-
           <img
-            src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
+            src={avatarUrl}
             alt={participant.displayName}
             referrerPolicy="no-referrer"
             className={cn(
-              "w-24 h-24 rounded-full border-4 transition-all duration-300 relative z-10",
-              participant.mood !== 'none' ? "border-[var(--primary)] scale-110" : "border-[var(--border)]",
-              !participant.isMuted && audioLevel > 0.1 ? "border-[var(--primary)]" : ""
+              'h-16 w-16 rounded-full border-[3px] sm:h-[88px] sm:w-[88px] lg:h-28 lg:w-28',
+              speaking ? 'border-accion' : 'border-separador'
             )}
           />
-          {participant.mood !== 'none' && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="absolute -top-2 -right-2 text-3xl bg-[var(--card)] rounded-full p-1 shadow-lg z-20"
+          {moodEmoji && (
+            <span
+              role="img"
+              aria-label={moodEmoji.label}
+              className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full border border-separador bg-superficie text-lg"
             >
-              {MOODS.find(m => m.type === participant.mood)?.emoji}
-            </motion.div>
+              {moodEmoji.emoji}
+            </span>
           )}
           {participant.isMuted && (
-            <div className="absolute bottom-0 right-0 bg-red-500 text-white p-1 rounded-full border-2 border-[var(--card)] z-20">
+            <span className="absolute -left-1 -top-1 grid h-6 w-6 place-items-center rounded-full bg-peligro text-sobre-peligro" aria-hidden="true">
               <MicOff size={14} />
-            </div>
+            </span>
           )}
         </div>
       )}
 
-      <div className="text-center">
-        <div className="flex items-center justify-center gap-2">
-          <h3 className="font-bold text-[var(--text)]">{participant.displayName}</h3>
+      <div className="flex w-full flex-col items-center gap-1.5">
+        <div className="flex items-center justify-center gap-1">
+          <h3 className="text-balance break-words text-base font-semibold">{participant.displayName}</h3>
           {!isLocal && friendRelation === 'none' && (
-            <button
+            <Boton
+              variante="plano"
+              tono="accion"
               onClick={onSendFriendRequest}
               disabled={friendRequestPending}
-              className="p-1 rounded-md bg-[var(--accent)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all disabled:opacity-50"
               title="Enviar solicitud de amistad"
               aria-label="Enviar solicitud de amistad"
             >
-              <UserPlus size={12} />
-            </button>
-          )}
-          {!isLocal && friendRelation === 'sent' && (
-            <span
-              className="p-1 rounded-md bg-[var(--accent)] text-[var(--muted)]"
-              title="Solicitud enviada"
-              aria-label="Solicitud enviada"
-            >
-              <Clock size={12} />
-            </span>
+              <UserPlus size={20} aria-hidden="true" />
+            </Boton>
           )}
         </div>
-        <p className="text-xs text-[var(--muted)] capitalize">
-          {participant.isMuted ? 'En silencio' : (participant.mood === 'none' ? 'Conectado' : participant.mood)}
-        </p>
-        {connDesc && (
-          <p
-            className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)]"
-            title={connDesc.label}
-          >
-            <span className={cn('w-2 h-2 rounded-full', connDesc.color)} />
-            {connDesc.label}
-          </p>
+        {!isLocal && friendRelation === 'sent' && (
+          <ChipEstado icono={Clock}>Solicitud enviada</ChipEstado>
         )}
+        <p className="flex items-center justify-center gap-2 text-sm text-texto-secundario">
+          {participant.isMuted ? (
+            <MicOff size={16} className="text-peligro-tinta" aria-hidden="true" />
+          ) : (
+            <Medidor nivel={audioLevel} />
+          )}
+          <span className="inline-block first-letter:uppercase">{statusText}</span>
+        </p>
+        {!isLocal && <div aria-live="polite">{chipConexion}</div>}
       </div>
 
       {!isLocal && (
-        <div className="w-full space-y-2">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onToggleListenerMute}
-              className="flex-shrink-0 text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-              title={isMutedByListener ? 'Activar audio' : 'Silenciar'}
-              aria-label={isMutedByListener ? 'Activar audio' : 'Silenciar'}
-            >
-              {isMutedByListener ? <VolumeX size={14} className="text-red-400" /> : <Volume2 size={14} />}
-            </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={volume ?? 1}
-              onChange={(e) => onVolumeChange?.(parseFloat(e.target.value))}
-              disabled={isMutedByListener}
-              className="flex-1 h-1 bg-[var(--accent)] rounded-lg appearance-none cursor-pointer accent-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-            />
-          </div>
+        <div className="flex w-full items-center gap-1">
+          <Boton
+            variante="plano"
+            tono={isMutedByListener ? 'peligro' : undefined}
+            data-fijo={isMutedByListener ? '' : undefined}
+            onClick={onToggleListenerMute}
+            aria-pressed={!!isMutedByListener}
+            aria-label={`Silenciar a ${participant.displayName}`}
+            title={isMutedByListener ? 'Activar audio' : 'Silenciar'}
+            className="flex-none"
+          >
+            {isMutedByListener ? <VolumeX size={20} aria-hidden="true" /> : <Volume2 size={20} aria-hidden="true" />}
+          </Boton>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
+            value={volume ?? 1}
+            onChange={(e) => onVolumeChange?.(parseFloat(e.target.value))}
+            disabled={isMutedByListener}
+            aria-label={`Volumen de ${participant.displayName}`}
+            aria-valuetext={`${Math.round((volume ?? 1) * 100)} %`}
+            style={{ ['--llenado' as string]: `${Math.round((volume ?? 1) * 100)}%` }}
+            className="fader min-w-0 flex-1"
+          />
           <audio ref={audioRef} autoPlay style={{ display: 'none' }} />
         </div>
       )}
@@ -315,7 +309,7 @@ function ParticipantCard({
   );
 }
 
-/** Hero: video grande del screen share activo, con overlay del presentador. */
+/** Hero: video grande del screen share activo, con el presentador abajo. */
 function HeroScreen({
   participant,
   screenStream,
@@ -337,10 +331,11 @@ function HeroScreen({
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      className="relative w-full h-full min-h-[280px] rounded-2xl overflow-hidden bg-black"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="relative h-full min-h-[280px] w-full overflow-hidden rounded-contenedor bg-black"
     >
       {screenStream ? (
         <video
@@ -348,28 +343,29 @@ function HeroScreen({
           autoPlay
           playsInline
           muted={isLocal}
-          className="w-full h-full object-contain"
+          className="h-full w-full object-contain"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center text-white/50 text-sm">
-          <Monitor size={20} className="mr-2" />
-          Cargando pantalla…
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-sm text-white/70">
+          <Medidor segmentos={0} />
+          <span className="flex items-center gap-2">
+            <Monitor size={20} aria-hidden="true" />
+            Cargando pantalla…
+          </span>
         </div>
       )}
-      {/* Overlay inferior con info del presentador */}
-      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent p-4 pt-8 flex items-center gap-3">
+      <ChipEstado icono={Monitor} className="absolute left-3 top-3 !bg-superficie !text-texto">
+        Compartiendo pantalla
+      </ChipEstado>
+      {/* Pie con el presentador */}
+      <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-black/75 px-4 py-3">
         <img
           src={participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`}
           alt={participant.displayName}
           referrerPolicy="no-referrer"
-          className="w-8 h-8 rounded-full border-2 border-white/30"
+          className="h-8 w-8 rounded-full border-2 border-white/30"
         />
-        <div>
-          <span className="text-white text-sm font-semibold">{participant.displayName}</span>
-          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-white/60">
-            Compartiendo pantalla
-          </span>
-        </div>
+        <span className="text-sm font-semibold text-white">{participant.displayName}</span>
       </div>
     </motion.div>
   );
@@ -1216,7 +1212,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
         </main>
       ) : (
         /* ─── Grid plano: nadie comparte pantalla ─── */
-        <main className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 content-start">
+        <main className="grid flex-1 grid-cols-2 content-center justify-center gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(200px,320px))]">
           <AnimatePresence>
             {Object.values(participants).map((p: Participant) => {
               const display: Participant = p.uid === userProfile.uid
