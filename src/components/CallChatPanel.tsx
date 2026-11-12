@@ -2,6 +2,11 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { X, Send, MessageSquare } from 'lucide-react';
 import type { CallMessage } from '../types';
+import { cn } from '../lib/utils';
+import { useDialogo } from '../hooks/useDialogo';
+import Boton from './ui/Boton';
+import Campo from './ui/Campo';
+import Medidor from './ui/Medidor';
 
 interface CallChatPanelProps {
   open: boolean;
@@ -29,6 +34,10 @@ export default function CallChatPanel({
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+
+  // Diálogo no modal: foco al campo al abrir, Escape cierra y el foco vuelve al botón Chat
+  useDialogo({ ref: panelRef, abierto: open, onCerrar: onClose, modal: false, focoInicial: textareaRef });
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -67,69 +76,65 @@ export default function CallChatPanel({
 
   return (
     <motion.aside
+      ref={panelRef}
+      role="dialog"
+      aria-labelledby="titulo-chat"
+      inert={!open}
       initial={false}
       animate={{ x: open ? 0 : '100%' }}
-      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className="fixed top-0 right-0 h-full w-[360px] bg-[var(--card)] border-l border-[var(--border)] shadow-2xl z-50 flex flex-col"
-      aria-hidden={!open}
+      transition={{ type: 'tween', duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+      className="panel-lateral fixed right-0 top-0 z-50 flex h-dvh w-full flex-col border-l border-separador bg-superficie md:w-[400px]"
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
-        <h2 className="text-xl font-bold text-[var(--text)] flex items-center gap-2">
-          <MessageSquare size={22} className="text-[var(--primary)]" /> Chat
+      <div className="flex items-center justify-between border-b border-separador px-4 py-3">
+        <h2 id="titulo-chat" className="flex items-center gap-2 text-xl font-semibold">
+          <MessageSquare size={20} className="text-texto-secundario" aria-hidden="true" /> Chat
         </h2>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-xl hover:bg-[var(--accent)] transition-colors text-[var(--muted)]"
-          aria-label="Cerrar"
-        >
-          <X size={20} />
-        </button>
+        <Boton variante="plano" onClick={onClose} aria-label="Cerrar">
+          <X size={20} aria-hidden="true" />
+        </Boton>
       </div>
 
       {/* Lista */}
-      <div className="flex-1 flex flex-col-reverse overflow-y-auto p-4 gap-2 scrollbar-thin">
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Mensajes"
+        className="scrollbar-thin flex flex-1 flex-col-reverse gap-3 overflow-y-auto p-4"
+      >
         {loading ? (
-          <p className="text-sm text-[var(--muted)] text-center py-8">Cargando mensajes...</p>
+          <p className="py-8 text-center text-texto-secundario">Cargando mensajes...</p>
         ) : messages.length === 0 ? (
-          <div className="text-center py-12 space-y-2">
-            <MessageSquare size={40} className="mx-auto text-[var(--border)]" />
-            <p className="text-sm text-[var(--muted)]">Sé el primero en escribir.</p>
+          <div className="flex flex-col items-center gap-3 py-12 text-center">
+            <Medidor segmentos={0} />
+            <p className="text-texto-secundario">Sé el primero en escribir.</p>
           </div>
         ) : (
           renderList.map((msg) => {
             const isMine = msg.sender_id === myUid;
             const sender = participantsMap.get(msg.sender_id);
             return (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
-              >
+              <div key={msg.id} className={cn('flex flex-col', isMine ? 'items-end' : 'items-start')}>
                 {!isMine && sender && (
-                  <div className="flex items-center gap-1.5 mb-1 px-1">
+                  <div className="mb-1 flex items-center gap-2 px-1">
                     <img
                       src={sender.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.sender_id}`}
-                      alt={sender.displayName}
+                      alt=""
                       referrerPolicy="no-referrer"
-                      className="w-5 h-5 rounded-full"
+                      className="h-6 w-6 rounded-full"
                     />
-                    <span className="text-[11px] font-semibold text-[var(--muted)]">
-                      {sender.displayName}
-                    </span>
+                    <span className="text-sm font-semibold text-texto-secundario">{sender.displayName}</span>
                   </div>
                 )}
                 <div
-                  className={`max-w-[80%] px-3 py-2 text-sm whitespace-pre-wrap break-words ${
-                    isMine
-                      ? 'bg-[var(--primary)] text-white rounded-2xl rounded-br-md'
-                      : 'bg-[var(--accent)] text-[var(--text)] rounded-2xl rounded-bl-md'
-                  }`}
+                  className={cn(
+                    'max-w-[80%] whitespace-pre-wrap break-words rounded-contenedor px-3.5 py-2 text-texto',
+                    isMine ? 'rounded-br-[6px] bg-accion-suave' : 'rounded-bl-[6px] bg-fondo-alterno'
+                  )}
                 >
                   {msg.body}
                 </div>
-                <span className="text-[10px] text-[var(--muted)] mt-1 px-1">
-                  {formatTime(msg.created_at)}
-                </span>
+                <span className="mt-1 px-1 text-xs tabular-nums text-texto-secundario">{formatTime(msg.created_at)}</span>
               </div>
             );
           })
@@ -137,26 +142,26 @@ export default function CallChatPanel({
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-[var(--border)]">
+      <div className="border-t border-separador p-4">
         <div className="flex items-end gap-2">
-          <textarea
+          <Campo
+            multilinea
             ref={textareaRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             onKeyDown={handleKeyDown}
+            aria-label="Mensaje"
             placeholder="Escribe un mensaje..."
             rows={1}
             maxLength={4000}
-            className="flex-1 resize-none px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-sm leading-snug scrollbar-thin"
+            fondo
+            claseContenedor="min-w-0 flex-1"
+            className="scrollbar-thin"
+            style={{ maxHeight: '96px' }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            className="p-3 rounded-xl bg-[var(--primary)] text-white hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-            aria-label="Enviar"
-          >
-            <Send size={18} />
-          </button>
+          <Boton onClick={handleSend} disabled={!canSend} tamano="cuadrado" aria-label="Enviar" className="flex-none">
+            <Send size={20} aria-hidden="true" />
+          </Boton>
         </div>
       </div>
     </motion.aside>
