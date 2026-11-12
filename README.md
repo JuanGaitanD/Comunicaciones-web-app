@@ -4,6 +4,12 @@
 
 ---
 
+## Demo disponible bajo demanda
+
+El Supabase de la demo está **en pausa por decisión del autor**. La demo se activa a pedido: mientras esté en pausa, entrar o registrarse no conecta. El sitio publicado muestra un aviso fijo en la pantalla de acceso que lo explica y remite al [perfil de GitHub del autor](https://github.com/JuanGaitanD) para pedir que se active. El aviso es contenido estático (`src/components/AvisoDemo.tsx`, usado en `Auth.tsx`): sin llamadas de red ni comprobación del servidor. Para activar la demo hay que reactivar el proyecto de Supabase ([docs/01-supabase-bootstrap.md](docs/01-supabase-bootstrap.md)) y, entonces, retirar el aviso.
+
+---
+
 ## Stack
 
 | Capa | Tecnología |
@@ -87,6 +93,12 @@ Screen sharing usa `addTrack` + renegociación SDP manual por peer:
 
 ---
 
+## Navegadores compatibles
+
+Diseño completo en **Chrome y Edge 111+, Firefox 128+, Safari y iOS 16.4+ y Samsung Internet 22+** (el suelo de Tailwind CSS 4; se declara en `.browserslistrc`). En versiones algo anteriores la página se lee y se opera con menos pulido; por debajo de Chrome 99, Firefox 97 o Safari 15.4 (sin capas en cascada) no se garantiza nada. Audio y llamadas piden HTTPS (o `localhost`) y WebRTC; compartir pantalla solo existe en navegadores de escritorio. Detalle en [HANDOFF.md](HANDOFF.md).
+
+---
+
 ## Correr localmente
 
 **Requisitos**: Node.js 20+, un proyecto de Supabase (free tier basta).
@@ -159,7 +171,9 @@ src/
     └── utils.ts           # cn() helper (clsx + tailwind-merge)
 
 public/
-└── favicon.svg            # icono de teléfono adaptativo (light/dark)
+├── favicon.svg            # medidor de canal (cinco barras, tres en ámbar) sobre grafito
+├── favicon-32.png         # respaldo PNG para navegadores sin favicon SVG
+└── apple-touch-icon.png   # 180 px, fondo opaco
 
 supabase/migrations/
 ├── 0001_init.sql

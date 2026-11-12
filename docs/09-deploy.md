@@ -14,7 +14,7 @@ Publicar la app en GitHub Pages con un único comando, sin GitHub Actions ni ser
 
 Los secrets de cliente del proyecto (claves `VITE_*`) se **hornean** en el bundle durante `vite build`. Para un workflow de CI haría falta replicar las cuatro variables TURN + las dos de Supabase como GitHub Secrets, y rotarlas en dos sitios cuando cambien. Para una app de portafolio con un solo desarrollador, mantener el `.env.local` como fuente única y publicar manualmente es más simple y reduce superficie de error.
 
-La rama `main` contiene solo código fuente. La rama `gh-pages` contiene solo el build estático (`index.html`, `favicon.svg`, `assets/`). Nunca conviven en el mismo árbol de trabajo.
+La rama `main` contiene solo código fuente. La rama `gh-pages` contiene solo el build estático (`index.html`, los iconos, `fonts/` y `assets/`). Nunca conviven en el mismo árbol de trabajo.
 
 ---
 
