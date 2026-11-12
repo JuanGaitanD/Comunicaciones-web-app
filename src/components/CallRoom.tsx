@@ -141,7 +141,7 @@ function ParticipantCard({
 
   const avatarUrl = participant.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.uid}`;
   const chipConexion = connDesc && (
-    <ChipEstado icono={connDesc.icono} tono={connDesc.tono}>
+    <ChipEstado icono={connDesc.icono} tono={connDesc.tono} className="max-w-full !whitespace-normal py-0.5 text-left">
       {connDesc.label}
     </ChipEstado>
   );
