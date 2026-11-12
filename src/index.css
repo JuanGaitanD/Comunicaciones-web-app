@@ -315,7 +315,6 @@ body {
 * { scrollbar-color: var(--borde-campo) transparent; }
 ::selection { background: var(--accion-suave); color: var(--texto); }
 [hidden] { display: none !important; }
-a { text-decoration: none; color: inherit; }
 h1, h2, h3 { text-wrap: balance; }
 
 /* Marca: Montserrat 900, «It» en cursiva y en tinta de acción */

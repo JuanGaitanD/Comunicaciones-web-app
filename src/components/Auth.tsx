@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { LogIn, UserPlus, Mail, Lock, User as UserIcon, CloudOff } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { esErrorDeRed, mensajeDeError } from '../lib/errores';
+import AvisoDemo from './AvisoDemo';
 import Boton from './ui/Boton';
 import Campo from './ui/Campo';
 import Medidor from './ui/Medidor';
@@ -102,6 +103,8 @@ export default function Auth() {
           </p>
         </div>
 
+        <AvisoDemo className="max-w-md" />
+
         <div className="flex flex-col gap-1">
           <span className="text-sm text-texto-secundario">Versión</span>
           <span className="text-base tabular-nums">2.0.0-alpha</span>
@@ -127,6 +130,8 @@ export default function Auth() {
             </div>
             <p className="mt-3 text-texto-secundario">Conéctate con tu voz</p>
           </div>
+
+          <AvisoDemo className="lg:hidden" />
 
           <div className="space-y-2">
             <h2 className="text-2xl font-bold">{isLogin ? 'Bienvenido de nuevo' : 'Crea tu cuenta'}</h2>
