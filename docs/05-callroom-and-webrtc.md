@@ -170,8 +170,7 @@ Cuando `activeSharer !== null` (alguien comparte pantalla), el layout de la llam
 - **`activeSharer`**: `useMemo` — devuelve `userProfile.uid` si `localScreenStream` está activo, o el uid del primer peer con `isSharingScreen: true`, o `null`.
 - **`HeroScreen`**: componente inline con `<video>` + overlay de nombre/avatar del presentador. Muestra placeholder "Cargando pantalla…" si el stream aún no llegó.
 - **`ParticipantCard compact`**: layout horizontal (avatar 40px, sin slider de volumen, sin video duplicado). El audio sigue activo vía `<audio>` oculto.
-- **Controles en sidebar**: mic + screen share + moods se mueven debajo de la lista de participantes (anclados al fondo con `flex-shrink-0`). La lista scrollea independientemente (`flex-1 overflow-y-auto min-h-0`).
-- **Footer**: se oculta en desktop (`md:hidden`) cuando hay hero activo. En móvil permanece visible.
+- **Controles**: (rediseño `design/disenojg`) ya no se duplican en la sidebar: micro, pantalla y ánimo viven en una única consola fija abajo, también con hero activo. La lista de la sidebar scrollea independientemente.
 - **Responsive**: en móvil el hero se apila verticalmente sobre un strip horizontal de participantes.
 
 ---
@@ -214,7 +213,7 @@ Usuario B pulsa "Solicitar"
 6. **Solicitud — denegar / timeout**: B ve toast "Solicitud denegada".
 7. **Busy**: A comparte, B y C solicitan simultáneamente. Solo B llega al popup de A; C recibe denegación inmediata.
 8. **Presentador sale**: A comparte, B solicitó. A cierra pestaña. `activeSharer` → null, `outgoingShareRequest` se limpia (Effect 9b). B puede presionar "Compartir" manualmente.
-9. **Scroll sidebar**: 8+ participantes en llamada hero. Lista scrollea, controles permanecen fijos al fondo.
+9. **Scroll sidebar**: 8+ participantes en llamada hero. Lista scrollea, la consola permanece fija al fondo.
 10. **TypeScript**: `npx tsc --noEmit` limpio.
 
 ---
@@ -301,7 +300,7 @@ export const canShareScreen =
   typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 ```
 
-`CallRoom` la importa y deshabilita los dos botones de "Compartir pantalla" (sidebar hero + footer) cuando es `false`, mostrando el tooltip "Compartir pantalla no está disponible en este navegador (típico de móviles)". `startScreenShare` también la chequea defensivamente como red de seguridad.
+`CallRoom` la importa y deshabilita el botón de "Compartir pantalla" de la consola cuando es `false`, mostrando el tooltip "Compartir pantalla no está disponible en este navegador (típico de móviles)". `startScreenShare` también la chequea defensivamente como red de seguridad.
 
 Sin este chequeo el usuario tocaba el botón, `getDisplayMedia` lanzaba `TypeError` y solo aparecía un warn en consola — UX cero pista.
 
@@ -316,6 +315,6 @@ Sin este chequeo el usuario tocaba el botón, `getDisplayMedia` lanzaba `TypeErr
 ## Resultado final
 
 - ✅ `src/hooks/useWebRTC.ts`: screen share con `addTrack`/`removeTrack` + renegociación manual. `ontrack` discriminado por `kind`. `peerUidsKey` para cleanup reactivo de peers desaparecidos.
-- ✅ `src/components/CallRoom.tsx`: hero layout automático, `ParticipantCard` con modo `compact`, componente `HeroScreen`, sistema de solicitud con `pendingAutoStart` reactivo, controles anclados al fondo de sidebar.
+- ✅ `src/components/CallRoom.tsx`: hero layout automático, `ParticipantCard` con modo `compact`, componente `HeroScreen`, sistema de solicitud con `pendingAutoStart` reactivo, consola de controles única (antes anclada al fondo de la sidebar).
 - ✅ `src/types.ts`: `Participant.isSharingScreen` añadido.
 - ✅ Todos los cambios pasan `tsc --noEmit` sin errores.

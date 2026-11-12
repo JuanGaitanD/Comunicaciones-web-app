@@ -8,7 +8,7 @@
 
 | Capa | Tecnología |
 |---|---|
-| Frontend | React 19, TypeScript, Vite 6, Tailwind CSS v4, Motion (animaciones), Lucide (iconos), Montserrat (tipografía de marca) |
+| Frontend | React 19, TypeScript, Vite 6, Tailwind CSS v4, Motion (animaciones), Lucide (iconos), Rubik (texto) y Montserrat (marca), ambas autoalojadas |
 | Backend | **Supabase** — Auth (email/password + Google OAuth), Postgres + Row Level Security, Realtime (Broadcast + Presence + CDC) |
 | Tiempo real | WebRTC mesh para audio + screen share · Supabase Realtime para señalización, presencia y chat |
 | Avatares | DiceBear (avataaars) |
@@ -83,7 +83,7 @@ Screen sharing usa `addTrack` + renegociación SDP manual por peer:
 **Hero layout** — cuando `activeSharer !== null`:
 - El `<main>` cambia de grid a `flex row`
 - `HeroScreen`: `<video>` a pantalla completa + overlay con nombre del presentador
-- Sidebar derecha: `ParticipantCard` en modo compacto (horizontal, sin slider), con controles de mic/share y moods anclados al fondo
+- Barra lateral derecha: `ParticipantCard` en modo compacto (fila de 64 px, sin slider); los controles de micro, pantalla y ánimo viven en la consola fija de abajo, la misma que en la cuadrícula
 
 ---
 
