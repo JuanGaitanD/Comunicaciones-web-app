@@ -1,4 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { AlertCircle } from 'lucide-react';
+import Boton from './ui/Boton';
 
 interface Props {
   children: ReactNode;
@@ -53,17 +55,22 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <div
           translate="no"
-          className="notranslate min-h-screen flex items-center justify-center p-4 bg-[var(--bg)]"
+          className="notranslate min-h-screen flex items-center justify-center p-4 bg-fondo"
         >
-          <div className="card max-w-md w-full p-8 text-center space-y-4">
-            <h2 className="text-2xl font-bold text-red-500">¡Ups!</h2>
-            <p className="text-[var(--text)]">{errorMessage}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="btn-primary w-full"
-            >
+          <div className="card max-w-md w-full p-8 text-center space-y-6">
+            <div className="brand-kallit text-marca">
+              <span>Kall</span>
+              <span className="brand-it">It</span>
+            </div>
+            <div className="space-y-3">
+              <h2 className="flex items-center justify-center gap-2 text-2xl font-bold text-texto">
+                <AlertCircle size={28} className="text-peligro-tinta" aria-hidden="true" /> ¡Ups!
+              </h2>
+              <p role="alert" className="text-texto-secundario">{errorMessage}</p>
+            </div>
+            <Boton tamano="lg" onClick={() => window.location.reload()} className="w-full">
               Recargar página
-            </button>
+            </Boton>
           </div>
         </div>
       );

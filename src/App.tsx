@@ -9,7 +9,8 @@ import DMWindow from './components/DMWindow';
 import { useDMNotifications } from './hooks/useDMNotifications';
 import { useFriends } from './hooks/useFriends';
 import { UserProfile, FriendWithProfile } from './types';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig } from 'motion/react';
+import Medidor from './components/ui/Medidor';
 
 function applyTheme(profile: UserProfile) {
   const root = document.documentElement;
@@ -34,7 +35,16 @@ function rowToProfile(row: any): UserProfile {
   };
 }
 
+/** Movimiento: respeta prefers-reduced-motion en todo lo que anima `motion`. */
 export default function App() {
+  return (
+    <MotionConfig reducedMotion="user">
+      <AppContenido />
+    </MotionConfig>
+  );
+}
+
+function AppContenido() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
@@ -112,12 +122,13 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--bg)]">
-        <motion.div
-          animate={{ scale: [1, 1.2, 1], rotate: [0, 180, 360] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="w-12 h-12 border-4 border-[var(--primary)] border-t-transparent rounded-full"
-        />
+      <div role="status" className="min-h-screen flex flex-col items-center justify-center gap-4 bg-fondo">
+        <div className="brand-kallit text-marca-movil">
+          <span>Kall</span>
+          <span className="brand-it">It</span>
+        </div>
+        <Medidor carga />
+        <p className="text-texto-secundario">Cargando…</p>
       </div>
     );
   }
@@ -127,7 +138,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] transition-colors duration-300">
+    <div className="min-h-screen bg-fondo text-texto">
       <AnimatePresence mode="wait">
         {currentCallId ? (
           <motion.div
