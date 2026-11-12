@@ -11,7 +11,7 @@ import Medidor from './ui/Medidor';
 export default function AvisoDemo({ className }: { className?: string }) {
   const titulo = useId();
   return (
-    <section aria-labelledby={titulo} className={cn('rounded-contenedor bg-superficie p-5', className)}>
+    <section aria-labelledby={titulo} className={cn('card p-5', className)}>
       <div className="flex items-center gap-3">
         <Medidor segmentos={0} />
         <h2 id={titulo} className="text-lg font-semibold text-texto">
