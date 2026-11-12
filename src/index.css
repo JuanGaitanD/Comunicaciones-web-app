@@ -706,6 +706,12 @@ h1, h2, h3 { text-wrap: balance; }
   .boton, .boton-plano, .campo, .selector, .opcion { border: 1px solid ButtonText; }
   .interruptor::before { border-color: ButtonText; }
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  .card, .chip { border: 1px solid CanvasText; }
+  .fader { forced-color-adjust: none; }
+  .fader::-webkit-slider-runnable-track { background: linear-gradient(to right, Highlight var(--llenado), GrayText var(--llenado)); }
+  .fader::-moz-range-track { background: linear-gradient(to right, Highlight var(--llenado), GrayText var(--llenado)); }
+  .fader::-webkit-slider-thumb { background: ButtonText; border-color: ButtonText; }
+  .fader::-moz-range-thumb { background: ButtonText; border-color: ButtonText; }
   .medidor i { background-color: GrayText; }
   .medidor i[data-on="true"] { background-color: Highlight; }
 }
