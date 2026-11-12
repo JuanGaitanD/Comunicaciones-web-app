@@ -52,6 +52,7 @@ export default function GrupoOpciones({
         {opciones.map((o) => (
           <label
             key={o.valor}
+            data-marcada={valor === o.valor || undefined}
             className={cn('opcion', variante === 'muestra' && 'opcion-muestra', (llenar || columnas) && 'flex-1')}
             style={variante === 'muestra' && o.color ? { backgroundColor: o.color } : undefined}
           >
