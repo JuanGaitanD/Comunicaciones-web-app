@@ -509,6 +509,7 @@ h1, h2, h3 { text-wrap: balance; }
   .selector:hover { border-color: var(--texto-secundario); }
   @supports (appearance: base-select) {
     .selector, .selector::picker(select) { appearance: base-select; }
+    .selector { display: flex; align-items: center; line-height: 1.2; }
     .selector::picker-icon { display: none; }
     .selector::picker(select) {
       border: 1px solid var(--borde-campo);

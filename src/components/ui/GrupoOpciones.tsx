@@ -27,6 +27,7 @@ export default function GrupoOpciones({
   onCambio,
   variante = 'texto',
   llenar,
+  columnas,
   className,
 }: {
   leyenda: string;
@@ -38,6 +39,8 @@ export default function GrupoOpciones({
   variante?: 'texto' | 'muestra';
   /** Las opciones reparten el ancho disponible. */
   llenar?: boolean;
+  /** Rejilla de dos columnas en lugar de una fila que se parte. */
+  columnas?: 2;
   className?: string;
 }) {
   return (
@@ -45,11 +48,11 @@ export default function GrupoOpciones({
       <legend className={cn('mb-2 text-sm font-medium text-texto-secundario', leyendaOculta && 'sr-only')}>
         {leyenda}
       </legend>
-      <div className="flex flex-wrap gap-2">
+      <div className={cn(columnas ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
         {opciones.map((o) => (
           <label
             key={o.valor}
-            className={cn('opcion', variante === 'muestra' && 'opcion-muestra', llenar && 'flex-1')}
+            className={cn('opcion', variante === 'muestra' && 'opcion-muestra', (llenar || columnas) && 'flex-1')}
             style={variante === 'muestra' && o.color ? { backgroundColor: o.color } : undefined}
           >
             <input
