@@ -2,7 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { X, Send } from 'lucide-react';
 import { useDMThread } from '../hooks/useDMThread';
+import { useDialogo } from '../hooks/useDialogo';
 import type { FriendWithProfile } from '../types';
+import { cn } from '../lib/utils';
+import Boton from './ui/Boton';
+import Campo from './ui/Campo';
+import Medidor from './ui/Medidor';
+import MensajeError from './ui/MensajeError';
 
 interface DMWindowProps {
   myUid: string;
@@ -19,6 +25,10 @@ export default function DMWindow({ myUid, friend, onClose }: DMWindowProps) {
   const [body, setBody] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const ventanaRef = useRef<HTMLDivElement>(null);
+
+  // Diálogo no modal: foco al campo, Escape cierra y el foco vuelve al activador
+  useDialogo({ ref: ventanaRef, abierto: true, onCerrar: onClose, modal: false, focoInicial: textareaRef });
 
   // Auto-resize textarea
   useEffect(() => {
@@ -46,59 +56,60 @@ export default function DMWindow({ myUid, friend, onClose }: DMWindowProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 60 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 60 }}
-      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className="fixed bottom-0 right-6 w-[380px] h-[520px] bg-[var(--card)] border border-[var(--border)] rounded-t-2xl shadow-2xl z-50 flex flex-col"
+      ref={ventanaRef}
+      role="dialog"
+      aria-label={`Mensajes con ${friend.otherProfile.displayName}`}
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 24 }}
+      transition={{ type: 'tween', duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+      className="fixed bottom-0 right-0 z-50 flex h-[85dvh] w-full flex-col rounded-t-contenedor border border-b-0 border-separador bg-superficie md:right-6 md:h-[520px] md:w-[380px]"
     >
       {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b border-[var(--border)]">
+      <div className="flex items-center gap-3 border-b border-separador px-4 py-3">
         <img
           src={friend.otherProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${friend.otherUid}`}
           alt={friend.otherProfile.displayName}
           referrerPolicy="no-referrer"
-          className="w-9 h-9 rounded-full flex-shrink-0"
+          className="h-10 w-10 flex-shrink-0 rounded-full"
         />
-        <span className="flex-1 font-semibold text-[var(--text)] truncate">{friend.otherProfile.displayName}</span>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-xl hover:bg-[var(--accent)] transition-colors text-[var(--muted)]"
-          aria-label="Cerrar"
-        >
-          <X size={18} />
-        </button>
+        <span className="min-w-0 flex-1 truncate font-semibold">{friend.otherProfile.displayName}</span>
+        <Boton variante="plano" onClick={onClose} aria-label="Cerrar">
+          <X size={20} aria-hidden="true" />
+        </Boton>
       </div>
 
       {/* Message list */}
       <div
         ref={listRef}
-        className="flex-1 overflow-y-auto p-4 flex flex-col-reverse gap-1"
+        role="log"
+        aria-live="polite"
+        aria-label="Mensajes"
+        className="scrollbar-thin flex flex-1 flex-col-reverse gap-2 overflow-y-auto p-4"
       >
         {loading ? (
-          <p className="text-sm text-[var(--muted)] text-center py-4">Cargando...</p>
+          <p className="py-4 text-center text-texto-secundario">Cargando...</p>
         ) : error ? (
-          <p className="text-sm text-red-500 text-center py-4">No se pudo abrir el chat.</p>
+          <MensajeError>No se pudo abrir el chat.</MensajeError>
         ) : messages.length === 0 ? (
-          <p className="text-sm text-[var(--muted)] text-center py-4">Di hola a {friend.otherProfile.displayName}!</p>
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <Medidor segmentos={0} />
+            <p className="text-texto-secundario">Di hola a {friend.otherProfile.displayName}!</p>
+          </div>
         ) : (
           // Reversed so flex-col-reverse shows latest at bottom
           [...messages].reverse().map((msg) => {
             const isMe = msg.sender_id === myUid;
             return (
-              <div
-                key={msg.id}
-                className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
-              >
+              <div key={msg.id} className={cn('flex', isMe ? 'justify-end' : 'justify-start')}>
                 <div
-                  className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm break-words ${
-                    isMe
-                      ? 'bg-[var(--primary)] text-white rounded-br-sm'
-                      : 'bg-[var(--accent)] text-[var(--text)] rounded-bl-sm'
-                  }`}
+                  className={cn(
+                    'max-w-[80%] break-words rounded-contenedor px-3.5 py-2 text-texto',
+                    isMe ? 'rounded-br-[6px] bg-accion-suave' : 'rounded-bl-[6px] bg-fondo-alterno'
+                  )}
                 >
                   <p style={{ whiteSpace: 'pre-wrap' }}>{msg.body}</p>
-                  <p className={`text-[10px] mt-1 ${isMe ? 'text-white/60 text-right' : 'text-[var(--muted)]'}`}>
+                  <p className={cn('mt-1 text-xs tabular-nums text-texto-secundario', isMe && 'text-right')}>
                     {formatTime(msg.created_at)}
                   </p>
                 </div>
@@ -109,25 +120,24 @@ export default function DMWindow({ myUid, friend, onClose }: DMWindowProps) {
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-[var(--border)] flex gap-2 items-end">
-        <textarea
+      <div className="flex items-end gap-2 border-t border-separador p-3">
+        <Campo
+          multilinea
           ref={textareaRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={handleKeyDown}
+          aria-label="Mensaje"
           placeholder="Escribe un mensaje..."
           rows={1}
-          className="flex-1 resize-none bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--primary)] transition-all overflow-hidden"
+          fondo
+          claseContenedor="min-w-0 flex-1"
+          className="overflow-hidden"
           style={{ maxHeight: '96px' }}
         />
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          className="p-2.5 bg-[var(--primary)] text-white rounded-xl hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-          aria-label="Enviar"
-        >
-          <Send size={18} />
-        </button>
+        <Boton onClick={handleSend} disabled={!canSend} tamano="cuadrado" aria-label="Enviar" className="flex-none">
+          <Send size={20} aria-hidden="true" />
+        </Boton>
       </div>
     </motion.div>
   );

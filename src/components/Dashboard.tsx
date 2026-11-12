@@ -448,7 +448,7 @@ export default function Dashboard({
         requestNotificationPermission={requestNotificationPermission}
       />
 
-      {friendsOpen && <div className="velo fixed inset-0 z-40" onClick={() => setFriendsOpen(false)} aria-hidden="true" />}
+      {friendsOpen && <div data-no-inert="" className="velo fixed inset-0 z-40" onClick={() => setFriendsOpen(false)} aria-hidden="true" />}
 
       {/* Anuncio del estado de copia para lectores de pantalla */}
       <span role="status" aria-live="polite" className="sr-only">

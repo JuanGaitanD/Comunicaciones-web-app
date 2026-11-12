@@ -687,6 +687,9 @@ h1, h2, h3 { text-wrap: balance; }
   .card { background-color: var(--superficie); border-radius: var(--radius-contenedor); }
   .velo { background-color: color-mix(in oklch, var(--fondo-alterno) 70%, transparent); }
 
+  /* Panel lateral cerrado: tras la salida deja de existir para la vista (y ya es inert) */
+  .panel-lateral[inert] { visibility: hidden; transition: visibility 0s linear 200ms; }
+
   /* ───────── Scrollbar fina de paneles ───────── */
   .scrollbar-thin { scrollbar-width: thin; scrollbar-color: var(--borde-campo) transparent; }
   .scrollbar-hide { scrollbar-width: none; }

@@ -39,7 +39,7 @@ export function useDialogo({ ref, abierto, onCerrar, modal = true, focoInicial }
       let nodo: HTMLElement | null = raiz;
       while (nodo && nodo.id !== 'root' && nodo.parentElement) {
         for (const hermano of Array.from(nodo.parentElement.children)) {
-          if (hermano !== nodo && hermano instanceof HTMLElement && !hermano.inert && hermano.tagName !== 'SCRIPT') {
+          if (hermano !== nodo && hermano instanceof HTMLElement && !hermano.inert && hermano.tagName !== 'SCRIPT' && !hermano.hasAttribute('data-no-inert')) {
             hermano.inert = true;
             inertes.push(hermano);
           }
