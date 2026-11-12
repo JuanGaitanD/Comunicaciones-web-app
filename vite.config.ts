@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
+    // Mínimo en el que la página al menos se lee: capas en cascada (@layer) = Chrome 99, Firefox 97,
+    // Safari 15.4. El diseño completo exige más (ver .browserslistrc y HANDOFF.md).
+    target: ['es2020', 'chrome99', 'edge99', 'firefox97', 'safari15.4'],
     rollupOptions: {
       output: {
         manualChunks: {

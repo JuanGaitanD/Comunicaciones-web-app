@@ -1,0 +1,8 @@
+# Objetivo de diseño completo. Es el suelo real de Tailwind CSS 4.2 (Safari 16.4, Chrome 111,
+# Firefox 128); no se baja sin migrar de framework. Detalle y respaldos en HANDOFF.md.
+chrome >= 111
+edge >= 111
+firefox >= 128
+safari >= 16.4
+ios_saf >= 16.4
+samsung >= 22
