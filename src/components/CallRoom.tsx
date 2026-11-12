@@ -834,9 +834,17 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
 
   // 6. Atajos de teclado.
   useEffect(() => {
+    // Atajos de una sola tecla (WCAG 2.1.4): no actúan al escribir en un campo ni con una capa abierta
+    // (modal o panel); la capa abierta cierra con su propio Escape.
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === 'm') setIsMuted(prev => !prev);
-      if (e.key === 'Escape') onLeave();
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.toLowerCase() === 'm' && !e.repeat) setIsMuted(prev => !prev);
+      if (e.key === 'Escape') {
+        if (document.querySelector('[role="dialog"]:not([inert]), [role="alertdialog"][aria-modal="true"]')) return;
+        onLeave();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
