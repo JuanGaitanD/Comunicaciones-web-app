@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff, Loader2, RefreshCw, WifiOff, type LucideIcon } from 'lucide-react';
 import { useWebRTC, canShareScreen } from '../hooks/useWebRTC';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { useCallMessages } from '../hooks/useCallMessages';
+import { useDialogo } from '../hooks/useDialogo';
+import { usePermisoMicro } from '../hooks/usePermisoMicro';
 import { Participant, Mood, UserProfile, FriendWithProfile } from '../types';
 import { cn } from '../lib/utils';
 import CallChatPanel from './CallChatPanel';
 import Boton from './ui/Boton';
+import MensajeError from './ui/MensajeError';
 import ChipEstado from './ui/ChipEstado';
 import Medidor from './ui/Medidor';
 
@@ -152,7 +155,7 @@ function ParticipantCard({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.16 }}
-        className="card relative flex min-h-16 flex-none items-center gap-3 p-3 max-md:w-60"
+        className="card relative flex min-h-16 flex-none snap-start items-center gap-3 p-3 max-md:w-60"
       >
         <div className="relative flex-shrink-0">
           <img
@@ -958,6 +961,26 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     }
   }, [incomingShareRequest, participants]);
 
+  // Capa de UI (no toca WebRTC ni la señalización): permiso del micrófono, modal accesible y popover de ánimo
+  const { sinMicro } = usePermisoMicro(localStream);
+  const reducirMovimiento = useReducedMotion();
+  const [moodOpen, setMoodOpen] = useState(false);
+  const modalSalirRef = useRef<HTMLDivElement>(null);
+  const cancelarSalirRef = useRef<HTMLButtonElement>(null);
+  useDialogo({
+    ref: modalSalirRef,
+    abierto: showLeaveModal,
+    onCerrar: () => setShowLeaveModal(false),
+    focoInicial: cancelarSalirRef,
+  });
+  // Escape cierra el popover de ánimo
+  useEffect(() => {
+    if (!moodOpen) return;
+    const alPulsar = (e: KeyboardEvent) => e.key === 'Escape' && setMoodOpen(false);
+    document.addEventListener('keydown', alPulsar);
+    return () => document.removeEventListener('keydown', alPulsar);
+  }, [moodOpen]);
+
   const handleLeaveClick = () => {
     if (userProfile.uid === creatorId) {
       setShowLeaveModal(true);
@@ -981,341 +1004,339 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     onLeave();
   };
 
+  const esCreador = userProfile.uid === creatorId;
+  const nParticipantes = Object.keys(participants).length;
+
+  const textoCompartir = !canShareScreen
+    ? 'No disponible'
+    : localScreenStream
+      ? 'Compartiendo'
+      : outgoingShareRequest
+        ? 'Solicitando...'
+        : activeSharer
+          ? 'Solicitar'
+          : 'Compartir';
+
+  // Teclas de la consola: 64 px en escritorio; 56 px con el texto debajo en móvil
+  const claseTecla = 'flex-1 max-md:min-h-14 max-md:min-w-0 max-md:flex-col max-md:gap-1 max-md:!rounded-[1.75rem] max-md:px-2 max-md:text-xs md:flex-none';
+
+  const grupoAnimo = (
+    <div role="group" aria-label="Tu ánimo" className="flex items-center gap-1">
+      {MOODS.map((m) => {
+        const activo = currentMood === m.type;
+        return (
+          <button
+            key={m.type}
+            type="button"
+            onClick={() => handleMoodSelect(m.type)}
+            aria-pressed={activo}
+            aria-label={`Sentirse ${m.label}`}
+            title={m.label}
+            className={cn(
+              'grid h-11 w-11 place-items-center rounded-control border-2 text-2xl transition-colors',
+              activo ? 'border-accion-tinta bg-accion-suave' : 'border-transparent hover:bg-fondo'
+            )}
+          >
+            <span aria-hidden="true">{m.emoji}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const listaParticipantes = (compact: boolean) =>
+    Object.values(participants).map((p: Participant) => {
+      const display: Participant = p.uid === userProfile.uid
+        ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
+        : p;
+      return (
+        <ParticipantCard
+          key={p.uid}
+          participant={display}
+          stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
+          screenStream={compact ? undefined : p.uid === userProfile.uid ? localScreenStream : remoteScreenStreams[p.uid]}
+          isLocal={p.uid === userProfile.uid}
+          volume={localVolumes[p.uid]}
+          onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
+          isMutedByListener={localMuted[p.uid] ?? false}
+          onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
+          friendRelation={friendRelationOf(p.uid)}
+          onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
+          friendRequestPending={friendRequestPending.has(p.uid)}
+          connectionState={peerConnectionStates[p.uid]}
+          compact={compact}
+        />
+      );
+    });
+
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg)] p-6">
+    <div className="flex min-h-dvh flex-col bg-fondo">
       <AnimatePresence>
         {showLeaveModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            transition={{ duration: 0.2 }}
+            className="velo fixed inset-0 z-50 flex items-center justify-center p-4"
           >
             <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="card max-w-md w-full p-8 space-y-6 shadow-2xl border-t-4 border-t-red-500"
+              ref={modalSalirRef}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="titulo-salir"
+              aria-describedby="texto-salir"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+              className="card w-full max-w-md space-y-6 p-6 sm:p-8"
             >
-              <div className="flex flex-col items-center text-center space-y-4">
-                <div className="p-4 bg-red-50 text-red-500 rounded-full">
-                  <AlertCircle size={48} />
-                </div>
+              <div className="flex flex-col items-center space-y-4 text-center">
+                <AlertCircle size={32} className="text-peligro-tinta" aria-hidden="true" />
                 <div className="space-y-2">
-                  <h3 className="text-2xl font-bold text-[var(--text)]">¿Terminar comunicación?</h3>
-                  <p className="text-[var(--muted)]">Eres el creador de esta sala. Puedes salirte tú solo o terminar la llamada para todos los participantes.</p>
+                  <h2 id="titulo-salir" className="text-2xl font-bold">¿Terminar comunicación?</h2>
+                  <p id="texto-salir" className="text-texto-secundario">Eres el creador de esta sala. Puedes salirte tú solo o terminar la llamada para todos los participantes.</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3">
-                <button
-                  onClick={handleEndCallForAll}
-                  disabled={isEndingCall}
-                  className="w-full py-4 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
+                <Boton variante="peligro" tamano="lg" onClick={handleEndCallForAll} cargando={isEndingCall} className="w-full">
                   {isEndingCall ? 'Terminando...' : 'Terminar para todos'}
-                </button>
-                <button
-                  onClick={onLeave}
-                  className="w-full py-4 bg-[var(--accent)] text-[var(--text)] font-bold rounded-xl hover:bg-[var(--border)] transition-all"
-                >
+                </Boton>
+                <Boton variante="secundario" tamano="lg" onClick={onLeave} className="w-full">
                   Solo salirme yo
-                </button>
-                <button
-                  onClick={() => setShowLeaveModal(false)}
-                  className="w-full py-3 text-[var(--muted)] font-medium hover:text-[var(--text)] transition-all"
-                >
+                </Boton>
+                <Boton ref={cancelarSalirRef} variante="terciario" onClick={() => setShowLeaveModal(false)} className="w-full">
                   Cancelar
-                </button>
+                </Boton>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--text)]">{callName}</h1>
-          <p className="text-sm text-[var(--muted)]">{Object.keys(participants).length} participantes conectados</p>
-        </div>
-        <div className="relative flex items-center gap-2">
-          {callVisibility === 'private' && callInviteCode && (
-            <button
-              onClick={async () => {
-                const base = import.meta.env.BASE_URL || '/';
-                const link = `${window.location.origin}${base}?invite=${callInviteCode}`;
-                await navigator.clipboard.writeText(link);
-                showToast('Link de invitación copiado');
-              }}
-              className="p-3 rounded-full bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)] transition-colors"
-              aria-label="Copiar link de invitación"
-              title="Copiar link de invitación"
-            >
-              <LinkIcon size={20} />
-            </button>
-          )}
-          <button
-            onClick={() => setChatOpen((v) => !v)}
-            className={cn(
-              'relative p-3 rounded-full transition-colors flex items-center gap-2',
-              chatOpen
-                ? 'bg-[var(--primary)] text-white'
-                : 'bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]'
-            )}
-            aria-label="Chat de la llamada"
-            title="Chat"
-          >
-            <MessageSquare size={20} />
-            {unreadChat > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                {unreadChat > 9 ? '9+' : unreadChat}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={handleLeaveClick}
-            className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center gap-2"
-            aria-label="Terminar comunicación (Esc)"
-          >
-            <PhoneOff size={20} /> <span className="hidden sm:inline">Terminar</span>
-          </button>
-
-          {/* Toast de confirmación — sale debajo de los botones */}
-          <AnimatePresence>
-            {toast && (
-              <motion.div
-                key={toast}
-                initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                transition={{ type: 'spring', damping: 20, stiffness: 260 }}
-                className="absolute top-full right-0 mt-2 z-[60] flex items-center gap-2 px-4 py-2.5 bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-xl text-sm font-medium text-[var(--text)] whitespace-nowrap"
-              >
-                <Check size={15} className="text-green-500 flex-shrink-0" />
-                {toast}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </header>
-
-      {activeSharer ? (
-        /* ─── Hero layout: screen share en primer plano + sidebar compacta ─── */
-        <main className="flex-1 flex flex-col md:flex-row gap-4">
-          {/* Hero: video grande */}
-          <div className="flex-1 min-w-0">
-            <AnimatePresence mode="wait">
-              {(() => {
-                const sharerP = participants[activeSharer];
-                if (!sharerP) return null;
-                const displaySharer: Participant = activeSharer === userProfile.uid
-                  ? { ...sharerP, mood: currentMood, isMuted, isSharingScreen: true }
-                  : sharerP;
-                return (
-                  <HeroScreen
-                    key={activeSharer}
-                    participant={displaySharer}
-                    screenStream={activeSharer === userProfile.uid ? localScreenStream : remoteScreenStreams[activeSharer]}
-                    isLocal={activeSharer === userProfile.uid}
-                  />
-                );
-              })()}
-            </AnimatePresence>
+      <div className="flex flex-1 flex-col px-4 pt-4 sm:px-6 sm:pt-6">
+        <header className="mb-6 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="break-words text-xl font-bold sm:text-2xl">{callName}</h1>
+            <p className="flex items-center gap-2 text-sm text-texto-secundario">
+              <Medidor segmentos={Math.min(5, nParticipantes)} mini />
+              {nParticipantes} participantes conectados
+            </p>
           </div>
-          {/* Sidebar: participantes (scroll) + controles fijos al fondo */}
-          <div className="md:w-72 flex md:flex-col flex-row md:h-[calc(100vh-10rem)]">
-            {/* Lista de participantes — scrollea independientemente */}
-            <div className="flex-1 flex md:flex-col flex-row gap-3 md:overflow-y-auto overflow-x-auto scrollbar-thin min-h-0">
+          <div className="relative flex flex-none items-center gap-1">
+            {callVisibility === 'private' && callInviteCode && (
+              <Boton
+                variante="plano"
+                onClick={async () => {
+                  const base = import.meta.env.BASE_URL || '/';
+                  const link = `${window.location.origin}${base}?invite=${callInviteCode}`;
+                  await navigator.clipboard.writeText(link);
+                  showToast('Link de invitación copiado');
+                }}
+                aria-label="Copiar link de invitación"
+                title="Copiar link de invitación"
+              >
+                <LinkIcon size={20} aria-hidden="true" />
+              </Boton>
+            )}
+            <Boton
+              variante="plano"
+              onClick={() => setChatOpen((v) => !v)}
+              aria-label={unreadChat > 0 ? `Chat de la llamada, ${unreadChat} sin leer` : 'Chat de la llamada'}
+              aria-expanded={chatOpen}
+              aria-haspopup="dialog"
+              title="Chat"
+              className="relative max-md:hidden"
+            >
+              <MessageSquare size={20} aria-hidden="true" />
+              <span>Chat</span>
+              {unreadChat > 0 && (
+                <span aria-hidden="true" className="flex h-5 min-w-5 items-center justify-center rounded-full bg-peligro px-1 text-xs font-bold text-sobre-peligro">
+                  {unreadChat > 9 ? '9+' : unreadChat}
+                </span>
+              )}
+            </Boton>
+            <Boton
+              variante="peligro"
+              onClick={handleLeaveClick}
+              aria-label="Terminar comunicación (Esc)"
+              className="max-sm:!w-12 max-sm:!px-0"
+            >
+              <PhoneOff size={20} aria-hidden="true" />
+              <span className="max-sm:hidden">{esCreador ? 'Terminar' : 'Salir'}</span>
+            </Boton>
+
+            {/* Toast de confirmación — sale debajo de los botones */}
+            <div role="status" aria-live="polite" className="absolute right-0 top-full z-[60] mt-2">
               <AnimatePresence>
-                {Object.values(participants).map((p: Participant) => {
-                  const display: Participant = p.uid === userProfile.uid
-                    ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
-                    : p;
-                  return (
-                    <ParticipantCard
-                      key={p.uid}
-                      participant={display}
-                      stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
-                      isLocal={p.uid === userProfile.uid}
-                      volume={localVolumes[p.uid]}
-                      onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
-                      isMutedByListener={localMuted[p.uid] ?? false}
-                      onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
-                      friendRelation={friendRelationOf(p.uid)}
-                      onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
-                      friendRequestPending={friendRequestPending.has(p.uid)}
-                      connectionState={peerConnectionStates[p.uid]}
-                      compact
-                    />
-                  );
-                })}
+                {toast && (
+                  <motion.div
+                    key={toast}
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+                    className="flex items-center gap-2 whitespace-nowrap rounded-contenedor border border-separador bg-superficie px-4 py-2.5 text-sm font-medium"
+                  >
+                    <Check size={16} className="flex-shrink-0 text-exito" aria-hidden="true" />
+                    {toast}
+                  </motion.div>
+                )}
               </AnimatePresence>
             </div>
+          </div>
+        </header>
 
-            {/* Controles fijos al fondo de la sidebar */}
-            <div className="hidden md:flex flex-col gap-2 flex-shrink-0 pt-3">
-              <div className="card p-3 flex items-center justify-center gap-2">
-                <button
-                  onClick={() => setIsMuted(prev => !prev)}
-                  className={cn(
-                    "p-3 rounded-full transition-all",
-                    isMuted ? "bg-red-100 text-red-600" : "bg-[var(--accent)] text-[var(--text)]"
-                  )}
-                  aria-label={isMuted ? "Activar micrófono" : "Silenciar micrófono"}
-                  title={isMuted ? "Activar micrófono (M)" : "Silenciar (M)"}
-                >
-                  {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                </button>
-                <button
-                  onClick={handleToggleScreenShare}
-                  disabled={outgoingShareRequest || !canShareScreen}
-                  className={cn(
-                    "p-3 rounded-full transition-all",
-                    !canShareScreen
-                      ? "bg-[var(--accent)] text-[var(--muted)] opacity-50 cursor-not-allowed"
-                      : localScreenStream
-                        ? "bg-[var(--primary)] text-white"
-                        : outgoingShareRequest
-                          ? "bg-amber-100 text-amber-700 animate-pulse"
-                          : activeSharer
-                            ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                            : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
-                  )}
-                  aria-label={!canShareScreen ? "Compartir pantalla no disponible en este navegador" : localScreenStream ? "Detener compartir" : "Compartir pantalla"}
-                  title={
-                    !canShareScreen ? "Compartir pantalla no está disponible en este navegador (típico de móviles)"
-                      : localScreenStream ? "Detener compartir pantalla"
-                        : outgoingShareRequest ? "Esperando respuesta..."
-                          : activeSharer ? "Solicitar compartir"
-                            : "Compartir pantalla"
-                  }
-                >
-                  {localScreenStream ? <MonitorOff size={20} /> : <Monitor size={20} />}
-                </button>
-              </div>
-              <div className="card p-2 flex flex-wrap items-center justify-center gap-1">
-                {MOODS.map((m) => (
-                  <button
-                    key={m.type}
-                    onClick={() => handleMoodSelect(m.type)}
-                    className={cn(
-                      "p-1.5 rounded-full text-lg hover:bg-[var(--accent)] transition-all",
-                      currentMood === m.type ? "bg-[var(--primary)] scale-110" : ""
-                    )}
-                    title={m.label}
-                    aria-label={`Sentirse ${m.label}`}
-                  >
-                    {m.emoji}
-                  </button>
-                ))}
-              </div>
+        {sinMicro && (
+          <MensajeError icono={MicOff} className="mb-4">
+            KallIt no tiene acceso a tu micrófono: los demás no te escuchan. Permítelo desde el candado de la barra de direcciones y vuelve a entrar a la sala.
+          </MensajeError>
+        )}
+
+        {activeSharer ? (
+          /* ─── Hero layout: screen share en primer plano + barra lateral compacta ─── */
+          <main className="flex flex-1 flex-col gap-4 md:flex-row">
+            {/* Hero: video grande */}
+            <div className="min-w-0 flex-1">
+              <AnimatePresence mode="wait">
+                {(() => {
+                  const sharerP = participants[activeSharer];
+                  if (!sharerP) return null;
+                  const displaySharer: Participant = activeSharer === userProfile.uid
+                    ? { ...sharerP, mood: currentMood, isMuted, isSharingScreen: true }
+                    : sharerP;
+                  return (
+                    <HeroScreen
+                      key={activeSharer}
+                      participant={displaySharer}
+                      screenStream={activeSharer === userProfile.uid ? localScreenStream : remoteScreenStreams[activeSharer]}
+                      isLocal={activeSharer === userProfile.uid}
+                    />
+                  );
+                })()}
+              </AnimatePresence>
+            </div>
+            {/* Barra lateral: participantes (scroll propio) */}
+            <div className="scrollbar-thin flex snap-x snap-mandatory flex-row gap-3 overflow-x-auto p-1.5 md:max-h-[calc(100dvh-13rem)] md:w-72 md:flex-col md:snap-none md:overflow-y-auto md:overflow-x-hidden">
+              <AnimatePresence>{listaParticipantes(true)}</AnimatePresence>
+            </div>
+          </main>
+        ) : (
+          /* ─── Rejilla: nadie comparte pantalla ─── */
+          <main className="grid flex-1 grid-cols-2 content-center justify-center gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(200px,320px))]">
+            <AnimatePresence>{listaParticipantes(false)}</AnimatePresence>
+          </main>
+        )}
+      </div>
+
+      {/* Consola: una sola fila de controles, también en modo hero */}
+      <footer className="sticky bottom-0 z-30 mt-4 rounded-t-contenedor bg-fondo-alterno px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
+        <div className="mx-auto flex max-w-[90rem] items-start justify-between gap-3 md:items-center md:gap-6">
+          <div className="flex flex-1 items-start gap-3 md:flex-none md:items-center">
+            <Boton
+              variante="secundario"
+              tamano="tecla"
+              onClick={() => setIsMuted((prev) => !prev)}
+              disabled={sinMicro}
+              data-hundido={isMuted || sinMicro ? 'true' : undefined}
+              aria-pressed={isMuted}
+              aria-label={sinMicro ? 'Sin micrófono' : isMuted ? 'Activar micrófono (M)' : 'Silenciar micrófono (M)'}
+              title={isMuted ? 'Activar micrófono (M)' : 'Silenciar (M)'}
+              className={cn(
+                claseTecla,
+                isMuted && !sinMicro && '!border-peligro-tinta [--cara:var(--peligro-suave)] [--cara-hover:var(--peligro-suave)] [--tinta:var(--peligro-tinta)]'
+              )}
+            >
+              {isMuted || sinMicro ? <MicOff size={24} aria-hidden="true" /> : <Mic size={24} aria-hidden="true" />}
+              <span>{sinMicro ? 'Sin micrófono' : isMuted ? 'Silenciado' : 'Micro abierto'}</span>
+            </Boton>
+
+            <div className="relative flex flex-1 md:flex-none">
+              <Boton
+                variante="secundario"
+                tamano="tecla"
+                onClick={handleToggleScreenShare}
+                disabled={outgoingShareRequest || !canShareScreen}
+                data-hundido={localScreenStream || outgoingShareRequest || !canShareScreen ? 'true' : undefined}
+                aria-pressed={!!localScreenStream}
+                aria-label={
+                  !canShareScreen ? 'Compartir pantalla no disponible en este navegador'
+                    : localScreenStream ? 'Detener compartir pantalla'
+                      : outgoingShareRequest ? 'Solicitando...'
+                        : activeSharer ? 'Solicitar compartir pantalla'
+                          : 'Compartir pantalla'
+                }
+                title={
+                  !canShareScreen ? 'Compartir pantalla no está disponible en este navegador (típico de móviles)'
+                    : localScreenStream ? 'Detener compartir pantalla'
+                      : outgoingShareRequest ? 'Esperando respuesta...'
+                        : activeSharer ? 'Solicitar compartir pantalla'
+                          : 'Compartir pantalla'
+                }
+                className={cn(
+                  claseTecla,
+                  'w-full md:w-auto',
+                  localScreenStream && '[--cara:var(--accion-suave)] [--cara-hover:var(--accion-suave)] !border-accion-tinta'
+                )}
+              >
+                {localScreenStream ? <MonitorOff size={24} aria-hidden="true" /> : outgoingShareRequest ? <Clock size={24} aria-hidden="true" /> : <Monitor size={24} aria-hidden="true" />}
+                <span>{textoCompartir}</span>
+              </Boton>
+              {localScreenStream && (
+                <ChipEstado tono="accion" className="pointer-events-none absolute -top-2 right-1 !min-h-5 !px-2 !text-xs">
+                  En vivo
+                </ChipEstado>
+              )}
+            </div>
+
+            {/* Chat: en móvil vive en la consola (en escritorio, en la cabecera) */}
+            <Boton
+              variante="secundario"
+              tamano="tecla"
+              onClick={() => setChatOpen((v) => !v)}
+              aria-label={unreadChat > 0 ? `Chat de la llamada, ${unreadChat} sin leer` : 'Chat de la llamada'}
+              aria-expanded={chatOpen}
+              aria-haspopup="dialog"
+              className={cn(claseTecla, 'relative md:hidden')}
+            >
+              <MessageSquare size={24} aria-hidden="true" />
+              <span>Chat</span>
+              {unreadChat > 0 && (
+                <span aria-hidden="true" className="absolute right-1 top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-peligro px-1 text-xs font-bold text-sobre-peligro">
+                  {unreadChat > 9 ? '9+' : unreadChat}
+                </span>
+              )}
+            </Boton>
+
+            {/* Ánimo en móvil: popover con los seis emojis */}
+            <div className="relative flex flex-1 md:hidden">
+              <Boton
+                variante="secundario"
+                tamano="tecla"
+                onClick={() => setMoodOpen((v) => !v)}
+                aria-expanded={moodOpen}
+                aria-haspopup="true"
+                aria-label="Tu ánimo"
+                className={cn(claseTecla, 'w-full')}
+              >
+                <span className="text-2xl leading-none" aria-hidden="true">
+                  {MOODS.find((m) => m.type === currentMood)?.emoji ?? '🙂'}
+                </span>
+                <span>Ánimo</span>
+              </Boton>
+              {moodOpen && (
+                <div className="absolute bottom-full right-0 z-40 mb-3 rounded-contenedor border border-separador bg-superficie p-2">
+                  {grupoAnimo}
+                </div>
+              )}
             </div>
           </div>
-        </main>
-      ) : (
-        /* ─── Grid plano: nadie comparte pantalla ─── */
-        <main className="grid flex-1 grid-cols-2 content-center justify-center gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(200px,320px))]">
-          <AnimatePresence>
-            {Object.values(participants).map((p: Participant) => {
-              const display: Participant = p.uid === userProfile.uid
-                ? { ...p, mood: currentMood, isMuted, isSharingScreen: !!localScreenStream }
-                : p;
-              return (
-                <ParticipantCard
-                  key={p.uid}
-                  participant={display}
-                  stream={p.uid === userProfile.uid ? localStream : remoteStreams[p.uid]}
-                  screenStream={p.uid === userProfile.uid ? localScreenStream : remoteScreenStreams[p.uid]}
-                  isLocal={p.uid === userProfile.uid}
-                  volume={localVolumes[p.uid]}
-                  onVolumeChange={(v) => handleVolumeChange(p.uid, v)}
-                  isMutedByListener={localMuted[p.uid] ?? false}
-                  onToggleListenerMute={() => handleToggleListenerMute(p.uid)}
-                  friendRelation={friendRelationOf(p.uid)}
-                  onSendFriendRequest={() => handleSendFriendRequest(p.uid)}
-                  friendRequestPending={friendRequestPending.has(p.uid)}
-                  connectionState={peerConnectionStates[p.uid]}
-                />
-              );
-            })}
-          </AnimatePresence>
-        </main>
-      )}
 
-      <footer className={cn(
-        "mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 p-4 card",
-        activeSharer && "md:hidden" // En hero mode los controles están en la sidebar (desktop)
-      )}>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsMuted(prev => !prev)}
-            className={cn(
-              "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
-              isMuted ? "bg-red-100 text-red-600" : "bg-[var(--accent)] text-[var(--text)]"
-            )}
-            aria-label={isMuted ? "Activar micrófono (M)" : "Silenciar micrófono (M)"}
-          >
-            {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-            <span className="hidden sm:inline">{isMuted ? 'Silenciado' : 'Hablando'}</span>
-          </button>
-          <button
-            onClick={handleToggleScreenShare}
-            disabled={outgoingShareRequest || !canShareScreen}
-            className={cn(
-              "p-4 rounded-full transition-all flex items-center gap-2 font-medium",
-              !canShareScreen
-                ? "bg-[var(--accent)] text-[var(--muted)] opacity-50 cursor-not-allowed"
-                : localScreenStream
-                  ? "bg-[var(--primary)] text-white"
-                  : outgoingShareRequest
-                    ? "bg-amber-100 text-amber-700 animate-pulse"
-                    : activeSharer
-                      ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                      : "bg-[var(--accent)] text-[var(--text)] hover:bg-[var(--border)]"
-            )}
-            aria-label={
-              !canShareScreen ? "Compartir pantalla no disponible en este navegador"
-                : localScreenStream ? "Detener compartir pantalla"
-                  : outgoingShareRequest ? "Solicitando..."
-                    : activeSharer ? "Solicitar compartir pantalla"
-                      : "Compartir pantalla"
-            }
-            title={
-              !canShareScreen ? "Compartir pantalla no está disponible en este navegador (típico de móviles)"
-                : localScreenStream ? "Detener compartir pantalla"
-                  : outgoingShareRequest ? "Esperando respuesta..."
-                    : activeSharer ? "Solicitar compartir pantalla"
-                      : "Compartir pantalla"
-            }
-          >
-            {localScreenStream ? <MonitorOff size={24} /> : <Monitor size={24} />}
-            <span className="hidden sm:inline">
-              {!canShareScreen ? 'No disponible'
-                : localScreenStream ? 'Compartiendo'
-                  : outgoingShareRequest ? 'Solicitando...'
-                    : activeSharer ? 'Solicitar'
-                      : 'Compartir'}
-            </span>
-          </button>
-        </div>
+          <div className="max-md:hidden rounded-contenedor bg-fondo p-1.5">{grupoAnimo}</div>
 
-        <div className="flex items-center gap-2 bg-[var(--bg)] p-2 rounded-full border border-[var(--border)]">
-          {MOODS.map((m) => (
-            <button
-              key={m.type}
-              onClick={() => handleMoodSelect(m.type)}
-              className={cn(
-                "p-2 rounded-full text-2xl hover:bg-[var(--accent)] transition-all",
-                currentMood === m.type ? "bg-[var(--primary)] scale-125" : ""
-              )}
-              title={m.label}
-              aria-label={`Sentirse ${m.label}`}
-            >
-              {m.emoji}
-            </button>
-          ))}
-        </div>
-
-        <div className="text-[var(--muted)] text-sm hidden lg:block">
-          <p>Atajos: <strong>M</strong> para micro, <strong>Esc</strong> para salir</p>
+          <p className="hidden text-sm text-texto-secundario lg:block">
+            Atajos: <strong>M</strong> para micro, <strong>Esc</strong> para salir
+          </p>
         </div>
       </footer>
 
@@ -1333,50 +1354,49 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
       <AnimatePresence>
         {incomingShareRequest && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-            className="fixed bottom-6 right-6 z-50 card p-5 shadow-2xl max-w-sm space-y-4"
+            role="alertdialog"
+            aria-labelledby="titulo-solicitud"
+            aria-describedby="texto-solicitud"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+            className="card fixed bottom-28 right-4 z-50 max-w-sm space-y-4 border border-separador p-5 sm:right-6"
           >
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-amber-100 text-amber-600 rounded-full">
-                <Monitor size={20} />
-              </div>
+              <Monitor size={24} className="flex-none text-accion-tinta" aria-hidden="true" />
               <div>
-                <p className="font-bold text-sm text-[var(--text)]">Solicitud de pantalla</p>
-                <p className="text-xs text-[var(--muted)]">
+                <p id="titulo-solicitud" className="font-semibold">Solicitud de pantalla</p>
+                <p id="texto-solicitud" className="text-sm text-texto-secundario">
                   <span className="font-semibold">{incomingShareRequest.fromName}</span> quiere compartir pantalla
                 </p>
               </div>
             </div>
-            {/* Barra de progreso de 15s */}
-            <div className="w-full h-1 bg-[var(--accent)] rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: '100%' }}
-                animate={{ width: '0%' }}
-                transition={{ duration: 15, ease: 'linear' }}
-                className="h-full bg-amber-400 rounded-full"
-              />
+            {/* Barra de 15 s (con movimiento reducido queda fija y se dice con texto) */}
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-fondo-alterno">
+              {reducirMovimiento ? (
+                <div className="h-full w-full rounded-full bg-accion" />
+              ) : (
+                <motion.div
+                  initial={{ width: '100%' }}
+                  animate={{ width: '0%' }}
+                  transition={{ duration: 15, ease: 'linear' }}
+                  className="h-full rounded-full bg-accion"
+                />
+              )}
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleAcceptShareRequest}
-                className="flex-1 py-2 px-3 bg-green-500 text-white text-sm font-semibold rounded-xl hover:bg-green-600 transition-colors"
-              >
+            {reducirMovimiento && <p className="text-sm text-texto-secundario">Responde en 15 s</p>}
+            <div className="flex gap-3">
+              <Boton onClick={handleAcceptShareRequest} className="flex-1">
                 Aceptar
-              </button>
-              <button
-                onClick={handleDenyShareRequest}
-                className="flex-1 py-2 px-3 bg-red-100 text-red-600 text-sm font-semibold rounded-xl hover:bg-red-200 transition-colors"
-              >
+              </Boton>
+              <Boton variante="secundario" onClick={handleDenyShareRequest} className="flex-1">
                 Denegar
-              </button>
+              </Boton>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
