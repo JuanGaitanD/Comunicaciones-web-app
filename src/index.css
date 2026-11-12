@@ -726,6 +726,10 @@ h1, h2, h3 { text-wrap: balance; }
   .interruptor::before { border-color: ButtonText; }
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
   .card, .chip { border: 1px solid CanvasText; }
+  /* Estados que se marcaban solo con el fondo: pestaña elegida y botones de alternar */
+  [role="tab"] { border: 2px solid Canvas; }
+  [role="tab"][aria-selected="true"] { border-color: Highlight; }
+  button[aria-pressed="true"]:not(.boton), button[aria-expanded="true"]:not(.boton) { border-style: double; border-width: 3px; }
   .fader { forced-color-adjust: none; }
   .fader::-webkit-slider-runnable-track { background: linear-gradient(to right, Highlight var(--llenado), GrayText var(--llenado)); }
   .fader::-moz-range-track { background: linear-gradient(to right, Highlight var(--llenado), GrayText var(--llenado)); }
