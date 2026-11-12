@@ -1,6 +1,6 @@
 # HANDOFF — mejora de diseño (rama `design/disenojg`)
 
-Estado del trabajo de diseño de KallIt con la skill diseñoJG. Solo commits locales: no hay push, PR ni despliegue.
+Estado del trabajo de diseño de KallIt con la skill diseñoJG. La rama se integró en `main` por avance rápido y se publicó en GitHub Pages el 2026-11-12 con `npm run deploy`.
 
 ## Dónde estamos
 
@@ -27,8 +27,17 @@ No hay pruebas automáticas ni ESLint en el repo. Con el backend pausado la app 
 - Audio y vídeo reales entre dos personas; que el medidor refleje la voz de un peer remoto (en el arnés los remotos no tienen stream).
 - Estados reales «Reconectando…» y «Sin audio (red bloqueada)» (solo se vieron los textos al forzarlos y en Firefox con peers simulados).
 - Realtime real (CDC, presencia), OAuth de Google, notificaciones de escritorio.
-- Lectores de pantalla y zoom al 200 %.
-- Firefox muestra el aviso de consola «Acquiring an exclusive Navigator LockManager lock…» del cliente de Supabase con el arnés; no se comparó con `main`.
+- Lectores de pantalla y Safari en iOS real (el zoom al 200 % y `forced-colors` se comprobaron emulados en la revisión).
+- Firefox muestra el aviso de consola «Acquiring an exclusive Navigator LockManager lock…» del cliente de Supabase con el arnés; también sale en `main`, es de origen.
+
+## Revisión independiente (2026-11-12)
+
+Veredicto: apto con dos correcciones, ya aplicadas en commits `fix` propios: Escape en el selector de ánimo sacaba de la llamada en móvil, y el botón «Salir» conservaba el nombre accesible «Terminar comunicación». Lint, build, build servido bajo `/Comunicaciones-web-app/`, los tres navegadores, movimiento reducido, alto contraste y los 8 juegos de color pasan; la lógica WebRTC y las llamadas a Supabase no cambiaron. Hallazgos que quedan abiertos:
+
+- **P2:** en las teclas del micro y de compartir, el nombre accesible no contiene el texto visible (se ve «Micro abierto» y el lector dice «Silenciar micrófono (M)»). Ya ocurría en `main`.
+- **P2:** a 320 px la barra de controles de la sala se sale 5 px (en `main`, hasta 28 px).
+- **P3:** en alto contraste el medidor parece siempre lleno (el texto sí dice el estado); con el chat abierto a 1440 px se tapa el cuarto participante (de origen).
+- **Riesgo sin verificar:** `usePermisoMicro` podría dar un aviso falso de micrófono denegado en Firefox si la persona tarda más de 4 s en aceptar el permiso.
 
 ## Pendiente
 
