@@ -1164,7 +1164,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
             <Boton
               variante="peligro"
               onClick={handleLeaveClick}
-              aria-label="Terminar comunicación (Esc)"
+              aria-label={esCreador ? 'Terminar comunicación (Esc)' : 'Salir de la comunicación (Esc)'}
               className="max-sm:!w-12 max-sm:!px-0"
             >
               <PhoneOff size={20} aria-hidden="true" />
