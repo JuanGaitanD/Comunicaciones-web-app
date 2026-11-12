@@ -1135,8 +1135,12 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                 onClick={async () => {
                   const base = import.meta.env.BASE_URL || '/';
                   const link = `${window.location.origin}${base}?invite=${callInviteCode}`;
-                  await navigator.clipboard.writeText(link);
-                  showToast('Link de invitación copiado');
+                  try {
+                    await navigator.clipboard.writeText(link);
+                    showToast('Link de invitación copiado');
+                  } catch (err) {
+                    console.error('No se pudo copiar el link:', err);
+                  }
                 }}
                 aria-label="Copiar link de invitación"
                 title="Copiar link de invitación"
