@@ -976,7 +976,12 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   // Escape cierra el popover de ánimo
   useEffect(() => {
     if (!moodOpen) return;
-    const alPulsar = (e: KeyboardEvent) => e.key === 'Escape' && setMoodOpen(false);
+    // Detiene la propagación para que el atajo global de Escape (en window) no saque de la llamada.
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setMoodOpen(false);
+    };
     document.addEventListener('keydown', alPulsar);
     return () => document.removeEventListener('keydown', alPulsar);
   }, [moodOpen]);
