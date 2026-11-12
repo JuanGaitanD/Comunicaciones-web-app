@@ -33,6 +33,11 @@
 }
 
 @theme {
+  /* Solo los papeles del sistema (más negro y blanco para el contenido de vídeo): ningún gris ni color de framework */
+  --color-*: initial;
+  --color-black: #000;
+  --color-white: #fff;
+
   --font-sans: "Rubik", ui-sans-serif, system-ui, sans-serif;
   --font-marca: "Montserrat", "Rubik", ui-sans-serif, system-ui, sans-serif;
 
@@ -294,17 +299,7 @@
   --exito: #83d494;
 }
 
-/* Alias antiguos hasta retirarlos en el último paso */
-:root {
-  --bg: var(--fondo);
-  --card: var(--superficie);
-  --primary: var(--accion);
-  --accent: var(--accion-suave);
-  --text: var(--texto);
-  --muted: var(--texto-secundario);
-  --border: var(--separador);
-  color-scheme: light;
-}
+:root { color-scheme: light; }
 .dark { color-scheme: dark; }
 
 /* ───────── Base ───────── */
@@ -346,7 +341,7 @@ h1, h2, h3 { text-wrap: balance; }
 
 @layer components {
   /* ───────── Botón con cuerpo ───────── */
-  .boton, .btn-primary {
+  .boton {
     --cara: var(--accion);
     --cara-hover: var(--accion-hover);
     --tinta: var(--sobre-accion);
@@ -373,13 +368,13 @@ h1, h2, h3 { text-wrap: balance; }
     box-shadow: 0 3px 0 var(--canto), inset 0 1px 0 var(--filo);
     transition: background-color 120ms, box-shadow 120ms, transform 120ms;
   }
-  .boton:hover:not(:disabled), .btn-primary:hover:not(:disabled) { background-color: var(--cara-hover); }
+  .boton:hover:not(:disabled) { background-color: var(--cara-hover); }
   .boton:active:not(:disabled), .boton[data-hundido="true"] {
     transform: translateY(3px);
     box-shadow: 0 0 0 var(--canto), inset 0 1px 0 var(--filo);
   }
   .boton svg { flex: none; user-select: none; }
-  .boton:focus-visible, .btn-primary:focus-visible {
+  .boton:focus-visible {
     box-shadow:
       0 3px 0 var(--canto),
       0 0 0 2px var(--fondo),
@@ -435,11 +430,11 @@ h1, h2, h3 { text-wrap: balance; }
   .boton[aria-busy="true"] { cursor: progress; }
   .boton-terciario:disabled { transform: none; background: transparent; }
   @media (pointer: coarse) {
-    .boton, .btn-primary { min-height: 48px; }
+    .boton { min-height: 48px; }
   }
 
   /* Salida plana: controles compactos de filas densas y cabeceras de panel */
-  .boton-plano, .btn-icon {
+  .boton-plano {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -457,15 +452,15 @@ h1, h2, h3 { text-wrap: balance; }
     user-select: none;
     transition: background-color 120ms, color 120ms;
   }
-  .boton-plano:hover:not(:disabled), .btn-icon:hover:not(:disabled) { background-color: var(--fondo-alterno); }
-  .boton-plano:active:not(:disabled), .btn-icon:active:not(:disabled) {
+  .boton-plano:hover:not(:disabled) { background-color: var(--fondo-alterno); }
+  .boton-plano:active:not(:disabled) {
     background-color: color-mix(in oklch, var(--fondo-alterno) 82%, var(--texto));
   }
   .boton-plano:disabled { color: var(--texto-secundario); cursor: not-allowed; }
   .boton-plano[data-tono="accion"] { color: var(--accion-tinta); }
   .boton-plano[data-tono="peligro"]:hover:not(:disabled), .boton-plano[data-tono="peligro"][data-fijo] { color: var(--peligro-tinta); }
   .boton-plano[aria-pressed="true"], .boton-plano[aria-expanded="true"] { background-color: var(--accion-suave); }
-  .boton svg, .boton-plano svg, .btn-icon svg { flex: none; }
+  .boton-plano svg { flex: none; }
 
   /* ───────── Campos ───────── */
   .campo {
@@ -698,7 +693,7 @@ h1, h2, h3 { text-wrap: balance; }
 
 /* ───────── Alto contraste ───────── */
 @media (forced-colors: active) {
-  .boton, .boton-plano, .btn-primary, .btn-icon, .campo, .selector, .interruptor, .opcion { border: 1px solid ButtonText; }
+  .boton, .boton-plano, .campo, .selector, .interruptor, .opcion { border: 1px solid ButtonText; }
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
   .medidor i { background-color: GrayText; }
   .medidor i[data-on="true"] { background-color: Highlight; }
