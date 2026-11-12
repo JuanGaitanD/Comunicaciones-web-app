@@ -26,6 +26,7 @@ export default function GrupoOpciones({
   opciones,
   onCambio,
   variante = 'texto',
+  llenar,
   className,
 }: {
   leyenda: string;
@@ -35,6 +36,8 @@ export default function GrupoOpciones({
   opciones: OpcionGrupo[];
   onCambio: (valor: string) => void;
   variante?: 'texto' | 'muestra';
+  /** Las opciones reparten el ancho disponible. */
+  llenar?: boolean;
   className?: string;
 }) {
   return (
@@ -46,7 +49,7 @@ export default function GrupoOpciones({
         {opciones.map((o) => (
           <label
             key={o.valor}
-            className={cn('opcion', variante === 'muestra' && 'opcion-muestra')}
+            className={cn('opcion', variante === 'muestra' && 'opcion-muestra', llenar && 'flex-1')}
             style={variante === 'muestra' && o.color ? { backgroundColor: o.color } : undefined}
           >
             <input

@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Phone, LogOut, Settings, Users, Globe, Lock, Link as LinkIcon, Check } from 'lucide-react';
+import { Plus, Phone, PhoneOff, LogOut, Settings, Users, Globe, Lock, Link as LinkIcon, Check, CloudOff } from 'lucide-react';
 import { Call, UserProfile, FriendWithProfile } from '../types';
 import type { useFriends } from '../hooks/useFriends';
 import FriendsPanel from './FriendsPanel';
-import { cn } from '../lib/utils';
+import Boton from './ui/Boton';
+import Campo from './ui/Campo';
+import ChipEstado from './ui/ChipEstado';
+import GrupoOpciones from './ui/GrupoOpciones';
+import Medidor from './ui/Medidor';
+import MensajeError from './ui/MensajeError';
+import { esErrorDeRed, mensajeDeError } from '../lib/errores';
 
 interface DashboardProps {
   userProfile: UserProfile;
@@ -52,6 +58,7 @@ export default function Dashboard({
   const [newCallName, setNewCallName] = useState('');
   const [newCallVisibility, setNewCallVisibility] = useState<'public' | 'private'>('public');
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<{ texto: string; red: boolean } | null>(null);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [copiedCallId, setCopiedCallId] = useState<string | null>(null);
@@ -118,6 +125,7 @@ export default function Dashboard({
     e.preventDefault();
     if (!newCallName.trim()) return;
     setIsCreating(true);
+    setCreateError(null);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setIsCreating(false);
@@ -137,11 +145,13 @@ export default function Dashboard({
       .select()
       .single();
     setIsCreating(false);
-    setNewCallName('');
     if (error || !data) {
       console.error('Error creando llamada:', error);
+      // Conserva lo escrito y dice qué pasó
+      setCreateError({ texto: mensajeDeError(error ?? new Error('No se pudo crear la llamada.')), red: esErrorDeRed(error) });
       return;
     }
+    setNewCallName('');
     onJoinCall(data.id);
   };
 
@@ -167,103 +177,168 @@ export default function Dashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div className="min-h-screen p-6 bg-[var(--bg)] font-sans">
-      <header className="max-w-5xl mx-auto flex items-center justify-between mb-12">
-        <div className="flex items-center gap-6">
-          <div className="relative">
-            <div className="absolute inset-0 bg-[var(--primary)] opacity-20 blur-xl rounded-full" />
-            <img
-              src={userProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile.uid}`}
-              alt={userProfile.displayName}
-              referrerPolicy="no-referrer"
-              className="w-16 h-16 rounded-full border-2 border-[var(--primary)] relative z-10 shadow-lg"
-            />
+  const pendientes = received.length + totalUnread;
+
+  /** Fila de sala: ratón en toda la fila, teclado en el botón «Entrar». */
+  const filaSala = (call: Call, privada: boolean) => {
+    const isMine = call.creatorId === userProfile.uid;
+    const justCopied = copiedCallId === call.id;
+    return (
+      <motion.li
+        key={call.id}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.16 }}
+        className="card flex min-h-[72px] cursor-pointer flex-wrap items-center gap-x-4 gap-y-3 p-4"
+        onClick={() => onJoinCall(call.id)}
+      >
+        <Medidor segmentos={2} />
+        <div className="min-w-0 flex-1 basis-44 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h3 className="break-words text-lg font-semibold">{call.name}</h3>
+            {privada && (
+              <ChipEstado icono={Lock} tono="accion">
+                Privada
+              </ChipEstado>
+            )}
           </div>
-          <div>
+          <p className="text-sm text-texto-secundario">Activa ahora</p>
+        </div>
+        <div className="ml-auto flex flex-none items-center gap-2">
+          {privada && isMine && call.inviteCode && (
+            <Boton
+              variante="plano"
+              onClick={(e) => {
+                e.stopPropagation();
+                copyInvite(call);
+              }}
+              title={justCopied ? '¡Copiado!' : 'Copiar invite link'}
+              aria-label="Copiar invite link"
+            >
+              {justCopied ? <Check size={20} aria-hidden="true" /> : <LinkIcon size={20} aria-hidden="true" />}
+            </Boton>
+          )}
+          <Boton
+            icono={<Phone size={20} aria-hidden="true" />}
+            aria-label={`Entrar a ${call.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onJoinCall(call.id);
+            }}
+          >
+            Entrar
+          </Boton>
+        </div>
+      </motion.li>
+    );
+  };
+
+  const vacio = (titulo: string, ayuda: string) => (
+    <div className="card flex flex-col items-center gap-3 p-8 text-center">
+      <Medidor segmentos={0} />
+      <div className="space-y-1">
+        <p className="font-medium">{titulo}</p>
+        <p className="text-sm text-texto-secundario">{ayuda}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-fondo p-4 font-sans sm:p-6">
+      <header className="mx-auto mb-10 flex max-w-[70rem] flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <img
+            src={userProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile.uid}`}
+            alt={userProfile.displayName}
+            referrerPolicy="no-referrer"
+            className="h-12 w-12 flex-none rounded-full border-2 border-separador"
+          />
+          <div className="min-w-0">
             {/* KallIt brand — dashboard header */}
-            <div className="brand-kallit text-2xl leading-none mb-1">
-              <span className="text-[var(--text)]">Kall</span><span className="brand-it text-[var(--primary)]">It</span>
+            <div className="brand-kallit mb-1 text-marca leading-none">
+              <span>Kall</span>
+              <span className="brand-it">It</span>
             </div>
-            <h2 className="text-sm text-[var(--text)] font-semibold">Hola, {userProfile.displayName}</h2>
-            <p className="text-xs text-[var(--muted)] font-medium">¿Listo para una comunicación auténtica?</p>
+            <h1 className="break-words text-lg font-semibold">Hola, {userProfile.displayName}</h1>
+            <p className="text-sm text-texto-secundario">¿Listo para una comunicación auténtica?</p>
           </div>
         </div>
-        <div className="flex gap-3">
-          <button
+        <div className="ml-auto flex gap-1">
+          <Boton
+            variante="plano"
             onClick={() => setFriendsOpen(true)}
-            className="relative p-3 bg-[var(--accent)] text-[var(--text)] rounded-xl hover:bg-[var(--border)] transition-all shadow-sm"
-            aria-label="Amigos"
+            aria-label={pendientes > 0 ? `Amigos, ${pendientes} pendientes` : 'Amigos'}
+            aria-haspopup="dialog"
+            aria-expanded={friendsOpen}
           >
-            <Users size={22} />
-            {received.length + totalUnread > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                {received.length + totalUnread}
+            <Users size={20} aria-hidden="true" />
+            <span className="hidden md:inline">Amigos</span>
+            {pendientes > 0 && (
+              <span aria-hidden="true" className="flex h-5 min-w-5 items-center justify-center rounded-full bg-peligro px-1 text-xs font-bold text-sobre-peligro">
+                {pendientes}
               </span>
             )}
-          </button>
-          <button onClick={onOpenSettings} className="p-3 bg-[var(--accent)] text-[var(--text)] rounded-xl hover:bg-[var(--border)] transition-all shadow-sm" aria-label="Ajustes"><Settings size={22} /></button>
-          <button onClick={onLogout} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all shadow-sm" aria-label="Cerrar sesión"><LogOut size={22} /></button>
+          </Boton>
+          <Boton variante="plano" onClick={onOpenSettings} aria-label="Ajustes" aria-haspopup="dialog">
+            <Settings size={20} aria-hidden="true" />
+            <span className="hidden md:inline">Ajustes</span>
+          </Boton>
+          <Boton variante="plano" tono="peligro" data-fijo="" onClick={onLogout} aria-label="Cerrar sesión">
+            <LogOut size={20} aria-hidden="true" />
+            <span className="hidden md:inline">Cerrar sesión</span>
+          </Boton>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <main className="mx-auto grid max-w-[70rem] grid-cols-1 gap-8 lg:grid-cols-3">
         {/* New Call Section */}
-        <section className="lg:col-span-1 space-y-6">
-          <div className="card p-8 space-y-6 shadow-xl border-t-4 border-t-[var(--primary)]">
+        <section className="space-y-4 lg:col-span-1" aria-labelledby="titulo-iniciar">
+          <div className="card space-y-6 p-6">
             <div className="space-y-1">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <Plus size={24} className="text-[var(--primary)]" /> Iniciar
-              </h3>
-              <p className="text-xs text-[var(--muted)] font-bold uppercase tracking-widest">Nueva Comunicación</p>
+              <h2 id="titulo-iniciar" className="flex items-center gap-2 text-xl font-semibold">
+                <Plus size={20} className="text-texto-secundario" aria-hidden="true" /> Iniciar
+              </h2>
+              <p className="text-sm text-texto-secundario">Nueva Comunicación</p>
             </div>
-            <form onSubmit={handleCreateCall} className="space-y-4">
-              <input
+            <form
+              onSubmit={handleCreateCall}
+              className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto_auto] md:items-end lg:grid-cols-1 lg:items-stretch"
+            >
+              <Campo
+                etiqueta="Nombre de la sala"
                 type="text"
                 placeholder="Nombre de la sala..."
                 value={newCallName}
                 onChange={(e) => setNewCallName(e.target.value)}
-                className="w-full p-4 bg-[var(--bg)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-[var(--primary)] transition-all font-medium"
+                autoComplete="off"
+                fondo
                 required
               />
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setNewCallVisibility('public')}
-                  className={cn(
-                    'py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 border transition-all',
-                    newCallVisibility === 'public'
-                      ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm'
-                      : 'bg-[var(--bg)] text-[var(--muted)] border-[var(--border)] hover:text-[var(--text)]'
-                  )}
-                >
-                  <Globe size={15} /> Pública
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewCallVisibility('private')}
-                  className={cn(
-                    'py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 border transition-all',
-                    newCallVisibility === 'private'
-                      ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm'
-                      : 'bg-[var(--bg)] text-[var(--muted)] border-[var(--border)] hover:text-[var(--text)]'
-                  )}
-                >
-                  <Lock size={15} /> Privada
-                </button>
-              </div>
-              <p className="text-[11px] text-[var(--muted)] leading-relaxed px-1">
+              <GrupoOpciones
+                leyenda="Visibilidad de la sala"
+                leyendaOculta
+                nombre="visibilidad-sala"
+                valor={newCallVisibility}
+                onCambio={(v) => setNewCallVisibility(v as 'public' | 'private')}
+                llenar
+                opciones={[
+                  { valor: 'public', etiqueta: 'Pública', icono: <Globe size={20} aria-hidden="true" />, describedBy: 'ayuda-visibilidad' },
+                  { valor: 'private', etiqueta: 'Privada', icono: <Lock size={20} aria-hidden="true" />, describedBy: 'ayuda-visibilidad' },
+                ]}
+              />
+              <Boton type="submit" tamano="lg" cargando={isCreating} icono={isCreating ? undefined : <Phone size={20} aria-hidden="true" />} className="md:min-w-44 lg:w-full">
+                {isCreating ? 'Iniciando...' : 'Crear Llamada'}
+              </Boton>
+              <p id="ayuda-visibilidad" className="text-sm text-texto-secundario md:col-span-3 lg:col-span-1">
                 {newCallVisibility === 'public'
                   ? 'Cualquier persona puede unirse.'
                   : 'Solo amigos la verán listada. Recibirás un link para invitar a no-amigos.'}
               </p>
-              <button
-                type="submit"
-                disabled={isCreating}
-                className="w-full py-4 bg-[var(--primary)] text-white font-bold rounded-xl hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[var(--primary)]/20"
-              >
-                {isCreating ? 'Iniciando...' : <><Phone size={20} /> Crear Llamada</>}
-              </button>
+              {createError && (
+                <MensajeError icono={createError.red ? CloudOff : undefined} className="md:col-span-3 lg:col-span-1">
+                  {createError.texto}
+                </MensajeError>
+              )}
             </form>
             <AnimatePresence>
               {inviteError && (
@@ -271,10 +346,14 @@ export default function Dashboard({
                   initial={{ opacity: 0, y: -6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
-                  className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2"
+                  transition={{ duration: 0.2 }}
+                  className="space-y-2"
                   onClick={() => setInviteError(null)}
                 >
-                  {inviteError}
+                  <MensajeError>{inviteError}</MensajeError>
+                  <Boton variante="terciario" onClick={() => setInviteError(null)}>
+                    Cerrar
+                  </Boton>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -282,143 +361,67 @@ export default function Dashboard({
         </section>
 
         {/* Active Calls Section */}
-        <section className="lg:col-span-2 space-y-8">
+        <section className="space-y-10 lg:col-span-2">
           {/* Privadas */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="text-lg font-bold flex items-center gap-2">
-                <Lock size={18} className="text-[var(--primary)]" /> Privadas (amigos)
-              </h3>
+          <div className="space-y-4" aria-labelledby="titulo-privadas" role="region">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="titulo-privadas" className="flex items-center gap-2 text-xl font-semibold">
+                <Lock size={20} className="text-texto-secundario" aria-hidden="true" /> Privadas (amigos)
+              </h2>
               {privateCalls.length > 0 && (
-                <span className="text-xs font-bold text-[var(--primary)] bg-[var(--accent)] px-2 py-1 rounded-full uppercase tracking-widest">
+                <span className="chip tabular-nums">
                   {privateCalls.length}
+                  <span className="sr-only"> salas</span>
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {privateCalls.length === 0 ? (
-                <div className="col-span-full card p-8 text-center space-y-1 bg-[var(--accent)]/20 border-dashed">
-                  <p className="text-[var(--muted)] text-sm font-medium">Sin llamadas privadas activas.</p>
-                  <p className="text-xs text-[var(--muted)] opacity-60">Crea una privada para coordinarte con tus amigos.</p>
-                </div>
-              ) : (
-                privateCalls.map((call) => {
-                  const isMine = call.creatorId === userProfile.uid;
-                  const justCopied = copiedCallId === call.id;
-                  return (
-                    <motion.div
-                      key={call.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      whileHover={{ y: -4 }}
-                      className="card p-5 flex items-center justify-between hover:border-[var(--primary)] transition-all cursor-pointer group shadow-sm hover:shadow-md"
-                      onClick={() => onJoinCall(call.id)}
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-bold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors">{call.name}</h4>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--accent)] px-1.5 py-0.5 rounded-md flex items-center gap-1">
-                            <Lock size={9} /> Privada
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[var(--muted)]">
-                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                          <span className="text-xs font-medium">Activa ahora</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isMine && call.inviteCode && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); copyInvite(call); }}
-                            className="p-2.5 rounded-xl bg-[var(--accent)] text-[var(--muted)] hover:text-[var(--primary)] transition-all"
-                            title={justCopied ? '¡Copiado!' : 'Copiar invite link'}
-                            aria-label="Copiar invite link"
-                          >
-                            {justCopied ? <Check size={16} /> : <LinkIcon size={16} />}
-                          </button>
-                        )}
-                        <div className="p-3 bg-[var(--accent)] text-[var(--primary)] rounded-xl group-hover:bg-[var(--primary)] group-hover:text-white transition-all">
-                          <Phone size={20} />
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })
-              )}
-            </div>
+            {privateCalls.length === 0 ? (
+              vacio('Sin llamadas privadas activas.', 'Crea una privada para coordinarte con tus amigos.')
+            ) : (
+              <ul className="grid grid-cols-1 gap-3">{privateCalls.map((call) => filaSala(call, true))}</ul>
+            )}
           </div>
 
           {/* Públicas */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="text-lg font-bold flex items-center gap-2">
-                <Globe size={18} className="text-green-500" /> Públicas
-              </h3>
+          <div className="space-y-4" aria-labelledby="titulo-publicas" role="region">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="titulo-publicas" className="flex items-center gap-2 text-xl font-semibold">
+                <Globe size={20} className="text-texto-secundario" aria-hidden="true" /> Públicas
+              </h2>
               {publicCalls.length > 0 && (
-                <span className="text-xs font-bold text-green-500 bg-green-50 px-2 py-1 rounded-full uppercase tracking-widest">
+                <span className="chip tabular-nums">
                   {publicCalls.length}
+                  <span className="sr-only"> salas</span>
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {publicCalls.length === 0 ? (
-                <div className="col-span-full card p-8 text-center space-y-1 bg-[var(--accent)]/20 border-dashed">
-                  <p className="text-[var(--muted)] text-sm font-medium">No hay comunicaciones públicas activas.</p>
-                  <p className="text-xs text-[var(--muted)] opacity-60">Sé el primero en iniciar una.</p>
-                </div>
-              ) : (
-                publicCalls.map((call) => (
-                  <motion.div
-                    key={call.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    whileHover={{ y: -4 }}
-                    className="card p-5 flex items-center justify-between hover:border-[var(--primary)] transition-all cursor-pointer group shadow-sm hover:shadow-md"
-                    onClick={() => onJoinCall(call.id)}
-                  >
-                    <div className="space-y-1">
-                      <h4 className="font-bold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors">{call.name}</h4>
-                      <div className="flex items-center gap-2 text-[var(--muted)]">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                        <span className="text-xs font-medium">Activa ahora</span>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-[var(--accent)] text-[var(--primary)] rounded-xl group-hover:bg-[var(--primary)] group-hover:text-white transition-all">
-                      <Phone size={20} />
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
+            {publicCalls.length === 0 ? (
+              vacio('No hay comunicaciones públicas activas.', 'Sé el primero en iniciar una.')
+            ) : (
+              <ul className="grid grid-cols-1 gap-3">{publicCalls.map((call) => filaSala(call, false))}</ul>
+            )}
           </div>
 
           {/* History Section */}
-          <div className="space-y-4 pt-4 border-t border-[var(--border)]">
-            <div className="px-2">
-              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-[var(--muted)]">Historial Reciente</h3>
-            </div>
-            <div className="space-y-3">
-              {endedCalls.length === 0 ? (
-                <p className="text-[var(--muted)] text-xs font-medium px-2">El historial aparecerá aquí.</p>
-              ) : (
-                endedCalls.map((call) => (
-                  <div
-                    key={call.id}
-                    className="flex items-center justify-between p-4 bg-[var(--accent)]/20 rounded-xl border border-transparent hover:border-[var(--border)] transition-all grayscale opacity-60 hover:grayscale-0 hover:opacity-100"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="p-2 bg-gray-100 rounded-lg">
-                        <Phone size={16} className="text-gray-400" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-[var(--text)]">{call.name}</h4>
-                        <p className="text-[10px] uppercase font-bold tracking-wider text-[var(--muted)]">Finalizada • {new Date(call.createdAt).toLocaleDateString()}</p>
-                      </div>
+          <div className="space-y-4 border-t border-separador pt-8" aria-labelledby="titulo-historial" role="region">
+            <h2 id="titulo-historial" className="text-xl font-semibold">
+              Historial Reciente
+            </h2>
+            {endedCalls.length === 0 ? (
+              <p className="text-sm text-texto-secundario">El historial aparecerá aquí.</p>
+            ) : (
+              <ul className="space-y-2">
+                {endedCalls.map((call) => (
+                  <li key={call.id} className="card flex items-center gap-3 px-4 py-3">
+                    <PhoneOff size={16} className="flex-none text-texto-secundario" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <h3 className="break-words font-medium">{call.name}</h3>
+                      <p className="text-sm text-texto-secundario">Finalizada • {new Date(call.createdAt).toLocaleDateString()}</p>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       </main>
@@ -445,12 +448,12 @@ export default function Dashboard({
         requestNotificationPermission={requestNotificationPermission}
       />
 
-      {friendsOpen && (
-        <div
-          className="fixed inset-0 bg-black/20 z-40"
-          onClick={() => setFriendsOpen(false)}
-        />
-      )}
+      {friendsOpen && <div className="velo fixed inset-0 z-40" onClick={() => setFriendsOpen(false)} aria-hidden="true" />}
+
+      {/* Anuncio del estado de copia para lectores de pantalla */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {copiedCallId ? '¡Copiado!' : ''}
+      </span>
     </div>
   );
 }
