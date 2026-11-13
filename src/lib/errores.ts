@@ -1,5 +1,5 @@
 export const TEXTO_SIN_SERVIDOR =
-  'No pudimos conectar con el servidor de KallIt: está en pausa. Puedes recorrer la app con «Probar la demo» (datos de ejemplo).';
+  'No pudimos conectar con el servidor de KallIt (puede estar en pausa). Puedes recorrer la app con «Probar la demo» (datos de ejemplo).';
 
 /** Detecta el fallo de red de fetch (backend pausado, sin conexión) con sus variantes por navegador. */
 export function esErrorDeRed(err: unknown): boolean {
