@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { motion } from 'motion/react';
 import { LogIn, UserPlus, Mail, Lock, User as UserIcon, CloudOff } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { esErrorDeRed, mensajeDeError } from '../lib/errores';
+import { esErrorDeRed, mensajeDeError, servidorResponde } from '../lib/errores';
 import AvisoDemo from './AvisoDemo';
 import Boton from './ui/Boton';
 import Campo from './ui/Campo';
@@ -27,6 +27,13 @@ export default function Auth() {
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
+    // Antes de salir hacia Google comprobamos que el servidor responde: con el backend en pausa su host ya
+    // no existe y el navegador dejaría a la persona en una pantalla de error, fuera de la app.
+    if (!(await servidorResponde())) {
+      fallo(new TypeError('Failed to fetch'));
+      setLoading(false);
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },

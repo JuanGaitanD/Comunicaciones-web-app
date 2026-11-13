@@ -16,3 +16,22 @@ export function mensajeDeError(err: unknown): string {
   const e = err as { message?: string } | null | undefined;
   return e?.message ?? String(err);
 }
+
+/**
+ * ¿Responde el servidor? Una petición mínima a su endpoint de salud, con tope de 4 s. Solo importa si hay
+ * red hasta el host (`no-cors`: la respuesta es opaca; un fallo de DNS o de conexión rechaza la promesa).
+ * Sirve para no sacar a la persona de la app hacia un host que no existe (p. ej. con el backend en pausa).
+ */
+export async function servidorResponde(): Promise<boolean> {
+  const corte = new AbortController();
+  const id = setTimeout(() => corte.abort(), 4000);
+  try {
+    const base = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
+    await fetch(`${base}/auth/v1/health`, { mode: 'no-cors', cache: 'no-store', signal: corte.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(id);
+  }
+}
