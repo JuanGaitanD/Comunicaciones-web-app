@@ -1207,7 +1207,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
           </div>
         </header>
 
-        <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mb-4 empty:hidden" />
+        <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mb-4" />
 
         {enDemo && (
           <p className="mb-4 flex items-start gap-2 text-sm text-texto-secundario">

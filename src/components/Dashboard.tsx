@@ -295,7 +295,7 @@ export default function Dashboard({
         </div>
       </header>
 
-      <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mx-auto mb-6 max-w-[70rem] empty:hidden" />
+      <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mx-auto mb-6 max-w-[70rem]" />
 
       <main className="mx-auto grid max-w-[70rem] grid-cols-1 gap-8 lg:grid-cols-3">
         {/* New Call Section */}
