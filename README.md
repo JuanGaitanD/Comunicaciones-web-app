@@ -6,7 +6,7 @@
 
 ## Demo con datos de ejemplo
 
-El Supabase del sitio está **en pausa por decisión del autor**, así que entrar con una cuenta real todavía no es posible. Para poder recorrer la app, el acceso ofrece **«Probar la demo»**: una **demo con datos de ejemplo, sin cuenta y sin red** (salas, amigos, mensajes directos, una llamada con personas de ejemplo con medidor, silencio y volumen, chat, ajustes y temas). Todo es ficticio, una franja fija dice «Demo · datos de ejemplo» con un botón para salir, y nada de lo que se haga se envía ni se guarda: ninguna petición sale del propio origen. Compartir pantalla y el audio real no están disponibles en la demo.
+El Supabase del sitio está **en pausa por decisión del autor**, así que entrar con una cuenta real todavía no es posible. Para poder recorrer la app, el acceso ofrece **«Probar la demo»**: una **demo con datos de ejemplo, sin cuenta y sin red** (salas, amigos, mensajes directos, una llamada con personas de ejemplo con medidor, silencio y volumen, chat, ajustes y temas). Todo es ficticio, una franja fija dice «Demo · datos de ejemplo» con un botón para salir, y nada de lo que se haga se envía ni se guarda: ninguna petición sale del propio origen (tampoco la renovación de una sesión guardada: el cliente real se detiene mientras dura la demo). Compartir pantalla y el audio real no están disponibles en la demo.
 
 **Para usarla de verdad hay que pedir una muestra o una prueba:** <https://juandgaitan.com/es/#contacto>.
 
