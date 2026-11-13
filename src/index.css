@@ -696,10 +696,8 @@ h1, h2, h3 { text-wrap: balance; }
   .card { background-color: var(--superficie); border-radius: var(--radius-contenedor); }
   /* El hueco del anillo de foco toma el color de la superficie sobre la que está el control */
   .card, [role="dialog"], [role="alertdialog"] { --hueco: var(--superficie); }
-  .velo { background-color: var(--fondo-alterno); opacity: 0.7; }
-  @supports (color: color-mix(in oklch, red, blue)) {
-    .velo { opacity: 1; background-color: color-mix(in oklch, var(--fondo-alterno) 70%, transparent); }
-  }
+  /* Sin opacity: se heredaría al diálogo que va dentro del velo. El build ya genera un respaldo opaco para color-mix. */
+  .velo { background-color: color-mix(in oklch, var(--fondo-alterno) 70%, transparent); }
 
   /* Panel lateral cerrado: tras la salida deja de existir para la vista (y ya es inert) */
   .panel-lateral[inert] { visibility: hidden; transition: visibility 0s linear 200ms; }
@@ -717,6 +715,9 @@ h1, h2, h3 { text-wrap: balance; }
   .h-\[85dvh\] { height: 85vh; }
   @media (min-width: 48rem) {
     .md\:max-h-\[calc\(100dvh-13rem\)\] { max-height: calc(100vh - 13rem); }
+    /* Este bloque va fuera de las capas y pisaría las alturas de escritorio de Ajustes y de los mensajes directos */
+    .md\:h-auto { height: auto; }
+    .md\:h-\[520px\] { height: 520px; }
   }
 }
 
