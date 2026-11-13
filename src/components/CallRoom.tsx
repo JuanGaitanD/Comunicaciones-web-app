@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff, Loader2, RefreshCw, WifiOff, type LucideIcon } from 'lucide-react';
-import { useWebRTC, canShareScreen } from '../hooks/useWebRTC';
+import { Mic, MicOff, PhoneOff, Volume2, VolumeX, AlertCircle, UserPlus, Clock, MessageSquare, Link as LinkIcon, Check, Monitor, MonitorOff, Loader2, RefreshCw, WifiOff, Info, type LucideIcon } from 'lucide-react';
+import { canShareScreen } from '../hooks/useWebRTC';
+import { useRtc } from '../hooks/useRtc';
+import { demoActiva, nivelesSimulados } from '../demo/modo';
 import { useAudioLevel } from '../hooks/useAudioLevel';
 import { useCallMessages } from '../hooks/useCallMessages';
 import { useDialogo } from '../hooks/useDialogo';
@@ -128,7 +130,8 @@ function ParticipantCard({
 
   useEffect(() => {
     const el = audioRef.current;
-    if (el && stream && !isLocal) {
+    // Los flujos simulados de la demo no llevan audio: no se conectan al <audio>
+    if (el && stream && !isLocal && !nivelesSimulados.has(stream)) {
       el.srcObject = stream;
       el.volume = isMutedByListener ? 0 : (volume ?? 1);
       el.play().catch((err) => {
@@ -489,7 +492,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
     startScreenShare,
     stopScreenShare,
     peerConnectionStates,
-  } = useWebRTC(callId, userProfile.uid, channel, peerUidsKey);
+  } = useRtc(callId, userProfile.uid, channel, peerUidsKey);
 
   // UID del participante que está compartiendo pantalla (o null). Se usa para
   // condicionar el hero layout y bloquear nuevos shares sin solicitud.
@@ -966,6 +969,9 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
 
   // Capa de UI (no toca WebRTC ni la señalización): permiso del micrófono, modal accesible y popover de ánimo
   const { sinMicro } = usePermisoMicro(localStream);
+  // Demo: sin micrófono, sin pantalla y sin personas reales (ver src/demo/)
+  const [enDemo] = useState(() => !!demoActiva());
+  const puedeCompartir = canShareScreen && !enDemo;
   const reducirMovimiento = useReducedMotion();
   const [moodOpen, setMoodOpen] = useState(false);
   const modalSalirRef = useRef<HTMLDivElement>(null);
@@ -1015,7 +1021,7 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const esCreador = userProfile.uid === creatorId;
   const nParticipantes = Object.keys(participants).length;
 
-  const textoCompartir = !canShareScreen
+  const textoCompartir = !puedeCompartir
     ? 'No disponible'
     : localScreenStream
       ? 'Compartiendo'
@@ -1203,6 +1209,13 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
 
         <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mb-4 empty:hidden" />
 
+        {enDemo && (
+          <p className="mb-4 flex items-start gap-2 text-sm text-texto-secundario">
+            <Info size={20} className="mt-px flex-none" aria-hidden="true" />
+            Demo: no se usa tu micrófono ni tu pantalla. Las voces y sus niveles son simulados, y el audio no sale de tu navegador.
+          </p>
+        )}
+
         {sinMicro && (
           <MensajeError icono={MicOff} className="mb-4">
             KallIt no tiene acceso a tu micrófono: los demás no te escuchan. Permítelo desde el candado de la barra de direcciones y vuelve a entrar a la sala.
@@ -1272,18 +1285,18 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                 variante="secundario"
                 tamano="tecla"
                 onClick={handleToggleScreenShare}
-                disabled={outgoingShareRequest || !canShareScreen}
-                data-hundido={localScreenStream || outgoingShareRequest || !canShareScreen ? 'true' : undefined}
+                disabled={outgoingShareRequest || !puedeCompartir}
+                data-hundido={localScreenStream || outgoingShareRequest || !puedeCompartir ? 'true' : undefined}
                 aria-pressed={!!localScreenStream}
                 aria-label={
-                  !canShareScreen ? 'Compartir pantalla no disponible en este navegador'
+                  !puedeCompartir ? (enDemo ? 'Compartir pantalla no está disponible en la demo' : 'Compartir pantalla no disponible en este navegador')
                     : localScreenStream ? 'Detener compartir pantalla'
                       : outgoingShareRequest ? 'Solicitando...'
                         : activeSharer ? 'Solicitar compartir pantalla'
                           : 'Compartir pantalla'
                 }
                 title={
-                  !canShareScreen ? 'Compartir pantalla no está disponible en este navegador (típico de móviles)'
+                  !puedeCompartir ? (enDemo ? 'En la demo no se puede compartir pantalla' : 'Compartir pantalla no está disponible en este navegador (típico de móviles)')
                     : localScreenStream ? 'Detener compartir pantalla'
                       : outgoingShareRequest ? 'Esperando respuesta...'
                         : activeSharer ? 'Solicitar compartir pantalla'

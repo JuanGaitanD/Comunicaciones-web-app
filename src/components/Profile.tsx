@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { X, Check, Moon, Sun, Shuffle, CloudOff } from 'lucide-react';
 import { UserProfile } from '../types';
 import { useDialogo } from '../hooks/useDialogo';
+import { demoActiva } from '../demo/modo';
 import { esErrorDeRed, mensajeDeError } from '../lib/errores';
 import Boton from './ui/Boton';
 import Campo from './ui/Campo';
@@ -89,6 +90,9 @@ export default function Profile({ userProfile, onClose, onProfileUpdated }: Prof
   }, [theme, isDarkMode]);
 
   const getAvatarUrl = (config: typeof avatarConfig) => {
+    // Demo: el avatar se dibuja en local; no se pide nada a DiceBear
+    const demo = demoActiva();
+    if (demo) return demo.avatarDesdeConfig(config);
     const params = new URLSearchParams({
       skinColor: config.skinColor || DEFAULT_AVATAR_CONFIG.skinColor,
       top: config.top || DEFAULT_AVATAR_CONFIG.top,
@@ -172,6 +176,11 @@ export default function Profile({ userProfile, onClose, onProfileUpdated }: Prof
         <div className="px-6 pb-2 pt-6 pr-16">
           <h2 id="titulo-ajustes" className="text-2xl font-bold">Personalizar Perfil</h2>
           <p id="descripcion-ajustes" className="text-texto-secundario">Ajusta tu identidad digital</p>
+          {demoActiva() && (
+            <p className="mt-1 text-sm font-medium text-accion-tinta">
+              Demo: lo que cambies aquí solo dura esta visita y no se guarda en ningún servidor.
+            </p>
+          )}
         </div>
 
         <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-4">

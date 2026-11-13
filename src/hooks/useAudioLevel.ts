@@ -1,9 +1,21 @@
 import { useState, useEffect } from 'react';
+import { nivelesSimulados } from '../demo/modo';
 
 export function useAudioLevel(stream: MediaStream | null) {
   const [level, setLevel] = useState(0);
 
   useEffect(() => {
+    // Demo: el nivel viene de un generador, no de audio real. Con movimiento reducido se actualiza
+    // despacio y por escalones; sin él, unas 10 veces por segundo.
+    const simulado = stream ? nivelesSimulados.get(stream) : undefined;
+    if (simulado) {
+      const reducido = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const paso = () => setLevel(simulado(Date.now(), reducido));
+      paso();
+      const id = window.setInterval(paso, reducido ? 700 : 100);
+      return () => window.clearInterval(id);
+    }
+
     if (!stream || stream.getAudioTracks().length === 0) {
       setLevel(0);
       return;
