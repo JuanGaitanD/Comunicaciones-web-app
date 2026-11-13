@@ -14,6 +14,9 @@ import Medidor from './components/ui/Medidor';
 import FranjaDemo from './components/FranjaDemo';
 import { demoActiva, demoGuardada, entrarEnDemo, salirDeDemo, useDemoActiva } from './demo/modo';
 
+/** Tiempo máximo mostrando «Cargando…» al abrir la app antes de pasar al acceso. */
+const TOPE_CARGA_MS = 3000;
+
 function applyTheme(profile: UserProfile) {
   const root = document.documentElement;
   root.className = '';
@@ -101,6 +104,11 @@ function AppContenido() {
     if (arrancandoDemo) return;
     let mounted = true;
     if (modoDemo) setLoading(true);
+    // Tope a la carga inicial: con una sesión guardada y el servidor caído, supabase-js reintenta la renovación
+    // casi un minuto antes de resolver. A los 3 s se muestra el acceso; si la sesión llega después, entra igual.
+    const tope = window.setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, TOPE_CARGA_MS);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
@@ -125,6 +133,7 @@ function AppContenido() {
 
     return () => {
       mounted = false;
+      window.clearTimeout(tope);
       subscription.unsubscribe();
     };
   }, [loadProfile, modoDemo, arrancandoDemo]);
