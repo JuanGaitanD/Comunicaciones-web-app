@@ -65,7 +65,8 @@ export function useDMNotifications(myUid: string | null, currentDMOtherUid: stri
       try {
         new Notification(displayName, {
           body: body.slice(0, 100),
-          icon: '/favicon.ico',
+          // Icono actual del sitio (el favicon.ico de antes ya no existe); con la base de Pages
+          icon: `${import.meta.env.BASE_URL}apple-touch-icon.png`,
           tag: `dm-${otherUid}`,
         });
       } catch (err) {
