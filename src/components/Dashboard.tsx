@@ -11,6 +11,7 @@ import ChipEstado from './ui/ChipEstado';
 import GrupoOpciones from './ui/GrupoOpciones';
 import Medidor from './ui/Medidor';
 import MensajeError from './ui/MensajeError';
+import AvisoCopia from './ui/AvisoCopia';
 import { esErrorDeRed, mensajeDeError } from '../lib/errores';
 
 interface DashboardProps {
@@ -62,6 +63,8 @@ export default function Dashboard({
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [copiedCallId, setCopiedCallId] = useState<string | null>(null);
+  // Si el portapapeles falla: el enlace queda a la vista para copiarlo a mano
+  const [enlaceSinCopiar, setEnlaceSinCopiar] = useState<string | null>(null);
 
   const { friends, received, sent, blocked, loading: friendsLoading, searchUsers, sendRequest, accept, reject, cancel, block, unblock } = friendsApi;
 
@@ -77,10 +80,12 @@ export default function Dashboard({
     if (!call.inviteCode) return;
     try {
       await navigator.clipboard.writeText(buildInviteLink(call.inviteCode));
+      setEnlaceSinCopiar(null);
       setCopiedCallId(call.id);
       setTimeout(() => setCopiedCallId((cur) => (cur === call.id ? null : cur)), 1500);
     } catch (err) {
       console.error('No se pudo copiar el link:', err);
+      setEnlaceSinCopiar(buildInviteLink(call.inviteCode));
     }
   }, [buildInviteLink]);
 
@@ -289,6 +294,8 @@ export default function Dashboard({
           </Boton>
         </div>
       </header>
+
+      <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mx-auto mb-6 max-w-[70rem] empty:hidden" />
 
       <main className="mx-auto grid max-w-[70rem] grid-cols-1 gap-8 lg:grid-cols-3">
         {/* New Call Section */}

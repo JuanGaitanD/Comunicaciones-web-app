@@ -14,6 +14,7 @@ import CallChatPanel from './CallChatPanel';
 import Boton from './ui/Boton';
 import MensajeError from './ui/MensajeError';
 import ChipEstado from './ui/ChipEstado';
+import AvisoCopia from './ui/AvisoCopia';
 import Medidor from './ui/Medidor';
 
 interface CallRoomProps {
@@ -396,6 +397,8 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
   const [callInviteCode, setCallInviteCode] = useState<string | null>(null);
   const [localMuted, setLocalMuted] = useState<{ [uid: string]: boolean }>({});
   const [toast, setToast] = useState<string | null>(null);
+  // Si el portapapeles falla: el enlace queda a la vista para copiarlo a mano
+  const [enlaceSinCopiar, setEnlaceSinCopiar] = useState<string | null>(null);
   // Sistema de solicitud de screen share
   const [incomingShareRequest, setIncomingShareRequest] = useState<{ fromUid: string; fromName: string } | null>(null);
   const [outgoingShareRequest, setOutgoingShareRequest] = useState(false);
@@ -1137,9 +1140,11 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
                   const link = `${window.location.origin}${base}?invite=${callInviteCode}`;
                   try {
                     await navigator.clipboard.writeText(link);
+                    setEnlaceSinCopiar(null);
                     showToast('Link de invitación copiado');
                   } catch (err) {
                     console.error('No se pudo copiar el link:', err);
+                    setEnlaceSinCopiar(link);
                   }
                 }}
                 aria-label="Copiar link de invitación"
@@ -1195,6 +1200,8 @@ export default function CallRoom({ callId, userProfile, onLeave, friends, sent, 
             </div>
           </div>
         </header>
+
+        <AvisoCopia enlace={enlaceSinCopiar} onCerrar={() => setEnlaceSinCopiar(null)} className="mb-4 empty:hidden" />
 
         {sinMicro && (
           <MensajeError icono={MicOff} className="mb-4">
