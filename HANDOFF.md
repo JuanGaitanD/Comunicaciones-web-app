@@ -1,6 +1,6 @@
 # HANDOFF — mejora de diseño (ramas `design/disenojg` y `design/ronda-2`)
 
-Estado del trabajo de diseño de KallIt con la skill diseñoJG. La rama `design/disenojg` se integró en `main` por avance rápido y se publicó en GitHub Pages el 2026-11-12 con `npm run deploy`. La **ronda 2** (`design/ronda-2`, desde `main` en `3423f3d`) añade el aviso de demo bajo demanda, la compatibilidad con navegadores y el favicon nuevo.
+Estado del trabajo de diseño de KallIt con la skill diseñoJG. La rama `design/disenojg` se integró en `main` por avance rápido y se publicó en GitHub Pages el 2026-11-12 con `npm run deploy`. La **ronda 2** (`design/ronda-2`, desde `main` en `3423f3d`) añade el aviso de demo bajo demanda, la compatibilidad con navegadores y el favicon nuevo; se integró en `main` por avance rápido y se publicó el mismo día.
 
 ## Dónde estamos
 
@@ -25,7 +25,7 @@ La interfaz entera se rediseñó con la dirección **«la consola de la sala»**
 
 **Objetivo (diseño completo):** Chrome y Edge 111+, Firefox 128+, Safari e iOS 16.4+, Samsung Internet 22+ (declarado en `.browserslistrc`). **Mínimo en que la página se lee:** Chrome 99, Firefox 97, Safari 15.4 (`build.target` de `vite.config.ts`, con `es2020`).
 
-El punto de partida (Safari 14+, Chrome/Edge/Firefox 90+) **no se puede cumplir**: el suelo lo pone Tailwind CSS 4.2 (la versión instalada), que usa capas en cascada (`@layer`, Chrome 99 / Firefox 97 / Safari 15.4: sin ellas el navegador ignora los bloques de capa y casi ninguna utilidad se aplica; deducido de la especificación, no ejecutado en un navegador así) y `@property` y `color-mix()` (Chrome 111 / Firefox 128 / Safari 16.4: por debajo, Tailwind trae sus respaldos y el diseño degrada). Bajarlo exigiría migrar a Tailwind 3 o aplanar las capas con PostCSS (dependencia nueva); no se hizo. `@tailwindcss/vite` fija además sus propios objetivos de CSS (Safari 16.4, Chrome 111, Firefox 128), así que `build.target` solo afecta al JS.
+El punto de partida (Safari 14+, Chrome/Edge/Firefox 90+) **no se puede cumplir**: el suelo lo pone Tailwind CSS 4.2 (la versión instalada), que usa capas en cascada (`@layer`, Chrome 99 / Firefox 97 / Safari 15.4: sin ellas el navegador ignora los bloques de capa y casi ninguna utilidad se aplica; deducido de la especificación, no ejecutado en un navegador así) y `@property` y `color-mix()` (Chrome 111 / Firefox 128 / Safari 16.4: por debajo, Tailwind trae sus respaldos y el diseño degrada). Bajarlo exigiría migrar a Tailwind 3 o aplanar las capas con PostCSS (dependencia nueva); no se hizo. `build.target` afecta tanto al JS como al CSS compilado (con él, el CSS pierde algunos prefijos y deja `inset` sin expandir); los respaldos de `@tailwindcss/vite` para Safari 16.4, Chrome 111 y Firefox 128 siguen presentes.
 
 Respaldos añadidos (todos CSS, sin polyfills ni dependencias):
 
@@ -71,6 +71,10 @@ Veredicto: apto con dos correcciones, ya aplicadas en commits `fix` propios: Esc
 - **P2:** a 320 px la barra de controles de la sala se sale 5 px (en `main`, hasta 28 px).
 - **P3:** con el chat abierto a 1440 px se tapa el cuarto participante (de origen). El medidor en alto contraste que también figuraba aquí se arregló en la ronda 2.
 - **Riesgo sin verificar:** `usePermisoMicro` podría dar un aviso falso de micrófono denegado en Firefox si la persona tarda más de 4 s en aceptar el permiso.
+
+## Revisión independiente de la ronda 2 (2026-11-12)
+
+Veredicto: apto con una corrección, ya aplicada en `fix(ui): no heredar opacidad al diálogo del velo…`: el respaldo de `.velo` sin `color-mix()` llevaba `opacity: 0.7`, que se heredaba al diálogo de Ajustes en Chrome 99–110, Firefox 97–112 y Safari 15.4–16.1. En el mismo commit, los respaldos de `dvh` (fuera de las capas) ya no pisan `md:h-auto` ni `md:h-[520px]`. Lint, build, build bajo `/Comunicaciones-web-app/`, flujo con arnés (32/35, las 3 fallas conocidas), 90 combinaciones de navegadores sin desborde, aviso de demo en 48 combinaciones y favicon pasan; zonas prohibidas intactas. P3 abiertos: `useDMNotifications.ts` usa `icon: '/favicon.ico'`, que no existe ni lleva la base de Pages (de origen); si copiar la invitación falla no se avisa a la persona; nombrar `@container` y `backdrop-filter` añade utilidades sin uso al CSS (~1 kB).
 
 ## Pendiente
 
