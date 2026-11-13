@@ -752,3 +752,10 @@ h1, h2, h3 { text-wrap: balance; }
   /* Sin animación, el medidor de carga queda fijo con tres segmentos encendidos */
   .medidor-carga i:nth-child(-n+3) { background-color: var(--accion); box-shadow: 0 1px 0 var(--accion-canto); }
 }
+
+/* ───────── Demo: la franja fija de arriba resta su altura a lo que ocupa toda la ventana ───────── */
+.demo-activa { --franja: 2.8125rem; }
+.demo-activa :is(.min-h-screen, .min-h-dvh) {
+  min-height: calc(100vh - var(--franja));
+  min-height: calc(100dvh - var(--franja));
+}

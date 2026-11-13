@@ -11,6 +11,8 @@ import { useFriends } from './hooks/useFriends';
 import { UserProfile, FriendWithProfile } from './types';
 import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import Medidor from './components/ui/Medidor';
+import FranjaDemo from './components/FranjaDemo';
+import { demoActiva, demoGuardada, entrarEnDemo, salirDeDemo, useDemoActiva } from './demo/modo';
 
 function applyTheme(profile: UserProfile) {
   const root = document.documentElement;
@@ -51,6 +53,13 @@ function AppContenido() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [currentDM, setCurrentDM] = useState<FriendWithProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  // Demo (src/demo/): con datos de ejemplo y sin red. `arrancandoDemo` espera a recuperarla tras recargar.
+  const modoDemo = useDemoActiva();
+  const [arrancandoDemo, setArrancandoDemo] = useState(demoGuardada);
+
+  useEffect(() => {
+    if (arrancandoDemo) entrarEnDemo().catch(() => {}).finally(() => setArrancandoDemo(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     unreadByOther,
@@ -89,7 +98,9 @@ function AppContenido() {
   }, []);
 
   useEffect(() => {
+    if (arrancandoDemo) return;
     let mounted = true;
+    if (modoDemo) setLoading(true);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
@@ -116,9 +127,22 @@ function AppContenido() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [loadProfile]);
+  }, [loadProfile, modoDemo, arrancandoDemo]);
 
-  const handleLogout = () => supabase.auth.signOut();
+  // En la demo, «cerrar sesión» y la franja salen de la demo y vuelven al acceso
+  const handleLogout = () => {
+    if (!demoActiva()) {
+      supabase.auth.signOut();
+      return;
+    }
+    salirDeDemo();
+    setUser(null);
+    setUserProfile(null);
+    setCurrentCallId(null);
+    setCurrentDM(null);
+    setIsSettingsOpen(false);
+    document.documentElement.className = '';
+  };
 
   if (loading) {
     return (
@@ -138,7 +162,8 @@ function AppContenido() {
   }
 
   return (
-    <div className="min-h-screen bg-fondo text-texto">
+    <div className={modoDemo ? 'min-h-screen bg-fondo text-texto demo-activa' : 'min-h-screen bg-fondo text-texto'}>
+      {modoDemo && <FranjaDemo onSalir={handleLogout} />}
       <AnimatePresence mode="wait">
         {currentCallId ? (
           <motion.div
