@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { demoActiva } from './demo/modo';
+import { demoActiva, demoGuardada, suscribirDemo } from './demo/modo';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -10,12 +10,23 @@ if (!url || !anonKey) {
   );
 }
 
+// Mientras la demo está activa (o se está recuperando tras recargar dentro de ella) el cliente real no puede
+// salir a la red: ni la renovación de una sesión guardada ni sus reintentos. Fuera de la demo, es `fetch` tal cual.
+const fetchDelCliente: typeof fetch = (entrada, opciones) =>
+  demoActiva() || demoGuardada() ? Promise.reject(new TypeError('Failed to fetch')) : fetch(entrada, opciones);
+
 const real = createClient(url, anonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
+  global: { fetch: fetchDelCliente },
+});
+
+// La renovación automática del cliente real se detiene al entrar en la demo y se reanuda al salir
+suscribirDemo(() => {
+  void (demoActiva() ? real.auth.stopAutoRefresh() : real.auth.startAutoRefresh());
 });
 
 /**

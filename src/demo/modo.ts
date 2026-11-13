@@ -15,6 +15,11 @@ const emitir = () => oyentes.forEach((f) => f());
 /** Niveles de voz simulados por MediaStream (`useAudioLevel` los lee en lugar de analizar audio real). */
 export const nivelesSimulados = new WeakMap<MediaStream, (ahora: number, reducido: boolean) => number>();
 
+/** Para quien necesita reaccionar al cambio fuera de React (p. ej. detener el cliente real). */
+export function suscribirDemo(f: () => void): void {
+  oyentes.add(f);
+}
+
 export const demoActiva = (): Demo | null => demo;
 
 /** ¿Venía en demo antes de recargar? (sessionStorage: solo esta pestaña, nada viaja ni se guarda fuera.) */
@@ -28,8 +33,19 @@ export const demoGuardada = (): boolean => {
 
 export async function entrarEnDemo(): Promise<void> {
   if (demo) return;
-  const { crearDemo } = await import('./demo');
-  demo = crearDemo(salirDeDemo);
+  let creada: Demo;
+  try {
+    creada = (await import('./demo')).crearDemo(salirDeDemo);
+  } catch (err) {
+    // Sin el código de la demo no hay demo: que una recarga posterior no se quede esperándola
+    try {
+      sessionStorage.removeItem(CLAVE);
+    } catch {
+      /* nada */
+    }
+    throw err;
+  }
+  demo = creada;
   try {
     sessionStorage.setItem(CLAVE, '1');
   } catch {
