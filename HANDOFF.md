@@ -1,6 +1,6 @@
-# HANDOFF — mejora de diseño (ramas `design/disenojg` y `design/ronda-2`)
+# HANDOFF — mejora de diseño (ramas `design/disenojg`, `design/ronda-2` y `design/ronda-3`)
 
-Estado del trabajo de diseño de KallIt con la skill diseñoJG. La rama `design/disenojg` se integró en `main` por avance rápido y se publicó en GitHub Pages el 2026-11-12 con `npm run deploy`. La **ronda 2** (`design/ronda-2`, desde `main` en `3423f3d`) añade el aviso de demo bajo demanda, la compatibilidad con navegadores y el favicon nuevo; se integró en `main` por avance rápido y se publicó el mismo día.
+Estado del trabajo de diseño de KallIt con la skill diseñoJG. La rama `design/disenojg` se integró en `main` por avance rápido y se publicó en GitHub Pages el 2026-11-12 con `npm run deploy`. La **ronda 2** (`design/ronda-2`, desde `main` en `3423f3d`) añade el aviso de demo bajo demanda, la compatibilidad con navegadores y el favicon nuevo; se integró en `main` por avance rápido y se publicó el mismo día. La **ronda 3** (`design/ronda-3`, desde `main` en `0c9dd39`) añade el **modo demo con datos de ejemplo y sin red**, el aviso nuevo del acceso y dos pendientes de la ronda 2; está sin publicar (la publica el orquestador tras la revisión).
 
 ## Dónde estamos
 
@@ -12,14 +12,20 @@ La interfaz entera se rediseñó con la dirección **«la consola de la sala»**
 - **Acceso:** salas operables con teclado, atajos `M`/`Esc` que no actúan al escribir ni con una capa abierta, paneles cerrados `inert`, diálogos con foco y retorno, aviso de micrófono denegado, error de red en español.
 - **Textos:** solo cambiaron dos etiquetas («Hablando» → «Micro abierto» en la tecla del micro; «Terminar» → «Salir» para quien no creó la sala) y se quitó la fila «Estado: En línea» del acceso (era un dato falso fijo).
 
-## Demo disponible bajo demanda
+## Demo con datos de ejemplo (ronda 3)
 
-**Decisión de Juan: no se reactiva Supabase; la demo se activa a pedido.** Qué significa:
+**Decisión de Juan: no se reactiva Supabase.** El proyecto sigue en pausa y su host no se resuelve por DNS. Diagnóstico de «KallIt no carga» desde el celular (producción, solo lectura, iPhone WebKit/Chromium, Android Chromium y escritorio en los tres motores): **la página carga** (HTTP 200, 0 respuestas ≥ 400, sin service worker ni caché, sin errores de JS ni desborde); lo que fallaba era el backend: «Entrar» daba el error de red y **«Acceder con Google» sacaba de la app hacia el host muerto**, que el navegador muestra como pantalla de error (eso es el «no carga»). Detalle en `docs/10-demo.md`.
 
-- El proyecto de Supabase sigue **en pausa**. Entrar o registrarse en el sitio publicado no conecta (sale el error de red en español de `src/lib/errores.ts`).
-- La pantalla de acceso lleva un **aviso fijo** (`src/components/AvisoDemo.tsx`, usado en `Auth.tsx`): «Demo en pausa. KallIt es una demo y su servidor está en pausa: se activa a pedido. Si intentas entrar o registrarte ahora, no conectará.», con enlace al perfil de GitHub del autor (el mismo que cita el `README.md`; no se inventó ningún otro contacto). En escritorio ocupa el panel oscuro, que así queda lleno; en móvil va sobre el formulario.
-- Es contenido estático: no hace llamadas de red ni comprueba el estado del servidor. Por eso la decisión D1 de la ronda 1 (comprobación real de `…/auth/v1/health`) queda descartada mientras la demo siga en pausa.
-- Para activarla: reactivar el proyecto de Supabase (`docs/01-supabase-bootstrap.md`) y retirar `AvisoDemo` del acceso.
+Qué se hizo:
+
+- **Modo demo** (`src/demo/`, carga diferida: ~18 kB, ~7 kB comprimido): un cliente de Supabase simulado en memoria con datos ficticios en español (amigos, solicitudes, bloqueados, salas públicas y privadas, historial, mensajes directos, chat de sala), avatares SVG locales y una llamada simulada (sin micrófono ni `RTCPeerConnection`) con medidor animado por niveles simulados que respeta `prefers-reduced-motion`. `src/supabase.ts` exporta un `Proxy`: con la demo apagada delega en el cliente real sin cambios. `CallRoom` usa `useRtc` (elige real o simulado una vez por montaje). Compartir pantalla no está disponible en la demo; el audio real, tampoco. Funcionamiento completo en `docs/10-demo.md`.
+- **Se activa** con **«Probar la demo»** en el aviso del acceso. Una franja fija arriba dice «Demo · datos de ejemplo · Nada de lo que hagas se envía ni se guarda» y deja salir; Ajustes y la sala repiten la advertencia. Recargar no saca de la demo (`sessionStorage`); salir resetea el tema.
+- **Aviso del acceso** (`AvisoDemo.tsx`): «Esto es una demo»; dice que se prueba con datos de ejemplo, que con cuenta real todavía no es posible y que **para usarla de verdad hay que pedir una muestra o una prueba**, con enlace a https://juandgaitan.com/es/#contacto. Sin desborde a 390 px en los 4 temas, claro y oscuro (48 combinaciones, 0 avisos del auditor).
+- **«Acceder con Google»** comprueba antes que el servidor responde (`servidorResponde`, 4 s de tope) y, si no, muestra el error de red en español sin salir de la app. El texto del error de red ahora remite a «Probar la demo».
+- **Garantía de sin red:** `demo.mjs` (fuera del repo) recorre la demo completa en Chromium, Firefox y WebKit (390 táctil y 1440, más 390 con movimiento reducido) y exige que ninguna petición salga del propio origen: 0 fuera del origen, `getUserMedia` y `RTCPeerConnection` en 0, 0 errores de consola (salvo el aviso de `LockManager` del cliente real de Supabase en Firefox, que sale con solo cargar el acceso y es de origen).
+- **Pendientes P3 de la ronda 2:** la notificación de mensaje directo usa `apple-touch-icon.png` con `import.meta.env.BASE_URL` (antes `/favicon.ico`, que no existe); si copiar la invitación falla (inicio y sala) sale un aviso `role="status"` con el enlace en un campo para copiarlo a mano (`AvisoCopia.tsx`).
+- **Modo normal intacto:** el flujo con arnés da el mismo resultado de siempre (32/35, las 3 FALLA de origen).
+- **Cuando vuelva el backend:** reactivar el proyecto ([docs/01-supabase-bootstrap.md](docs/01-supabase-bootstrap.md)) y decidir si el aviso conserva «Probar la demo» (sirve de muestra sin cuenta) y retira el «servidor en pausa» (`AvisoDemo.tsx`, `src/lib/errores.ts`).
 
 ## Compatibilidad con navegadores
 
@@ -53,10 +59,11 @@ npm run lint      # = tsc --noEmit; es el único lint
 npm run build
 ```
 
-No hay pruebas automáticas ni ESLint en el repo. Con el backend pausado la app queda en blanco sin variables de entorno; para ver las pantallas internas hace falta un arnés que simule Supabase (REST, auth, RPC y Realtime). Se usó uno **fuera del repo**; no se incluye aquí. Servidor de verificación: `VITE_SUPABASE_URL=<url ficticia> VITE_SUPABASE_ANON_KEY=<clave ficticia> npx vite --port <puerto> --strictPort` (el script `dev` fija el puerto 3000).
+No hay pruebas automáticas ni ESLint en el repo. Con el backend pausado la app queda en blanco sin variables de entorno; para ver las pantallas internas hace falta un arnés que simule Supabase (REST, auth, RPC y Realtime). Se usó uno **fuera del repo**; no se incluye aquí. La demo se recorre con un script de Playwright fuera del repo (pasos y comandos en `docs/10-demo.md`). Servidor de verificación: `VITE_SUPABASE_URL=<url ficticia> VITE_SUPABASE_ANON_KEY=<clave ficticia> npx vite --port <puerto> --strictPort` (el script `dev` fija el puerto 3000).
 
 ## Qué no se pudo verificar (backend pausado)
 
+- La demo en un celular real y en Safari/iOS reales: se recorrió con emulación táctil de 390 px en Chromium, Firefox y WebKit de Playwright (sin `MediaStream`, `getUserMedia` ni `RTCPeerConnection` en WebKit de Playwright, razón por la que los flujos de la demo no dependen de ellos), no con dispositivos.
 - Audio y vídeo reales entre dos personas; que el medidor refleje la voz de un peer remoto (en el arnés los remotos no tienen stream).
 - Estados reales «Reconectando…» y «Sin audio (red bloqueada)» (solo se vieron los textos al forzarlos y en Firefox con peers simulados).
 - Realtime real (CDC, presencia), OAuth de Google, notificaciones de escritorio.
@@ -74,11 +81,11 @@ Veredicto: apto con dos correcciones, ya aplicadas en commits `fix` propios: Esc
 
 ## Revisión independiente de la ronda 2 (2026-11-12)
 
-Veredicto: apto con una corrección, ya aplicada en `fix(ui): no heredar opacidad al diálogo del velo…`: el respaldo de `.velo` sin `color-mix()` llevaba `opacity: 0.7`, que se heredaba al diálogo de Ajustes en Chrome 99–110, Firefox 97–112 y Safari 15.4–16.1. En el mismo commit, los respaldos de `dvh` (fuera de las capas) ya no pisan `md:h-auto` ni `md:h-[520px]`. Lint, build, build bajo `/Comunicaciones-web-app/`, flujo con arnés (32/35, las 3 fallas conocidas), 90 combinaciones de navegadores sin desborde, aviso de demo en 48 combinaciones y favicon pasan; zonas prohibidas intactas. P3 abiertos: `useDMNotifications.ts` usa `icon: '/favicon.ico'`, que no existe ni lleva la base de Pages (de origen); si copiar la invitación falla no se avisa a la persona; nombrar `@container` y `backdrop-filter` añade utilidades sin uso al CSS (~1 kB).
+Veredicto: apto con una corrección, ya aplicada en `fix(ui): no heredar opacidad al diálogo del velo…`: el respaldo de `.velo` sin `color-mix()` llevaba `opacity: 0.7`, que se heredaba al diálogo de Ajustes en Chrome 99–110, Firefox 97–112 y Safari 15.4–16.1. En el mismo commit, los respaldos de `dvh` (fuera de las capas) ya no pisan `md:h-auto` ni `md:h-[520px]`. Lint, build, build bajo `/Comunicaciones-web-app/`, flujo con arnés (32/35, las 3 fallas conocidas), 90 combinaciones de navegadores sin desborde, aviso de demo en 48 combinaciones y favicon pasan; zonas prohibidas intactas. P3: `useDMNotifications.ts` con `icon: '/favicon.ico'` y el aviso al fallar el portapapeles **se resolvieron en la ronda 3**; sigue abierto que nombrar `@container` y `backdrop-filter` en texto añade utilidades sin uso al CSS (~1 kB).
 
 ## Pendiente
 
-- ~~Comprobación real del estado del servidor en el acceso~~: descartada por decisión de Juan (la demo se activa a pedido; ver «Demo disponible bajo demanda»). El aviso es estático.
+- ~~Comprobación real del estado del servidor en el acceso~~: descartada por decisión de Juan. Lo único que se comprueba es que el servidor responda antes de ir a Google (ver «Demo con datos de ejemplo»).
 - **Decisión de Juan:** lemas de plantilla («¿Listo para una comunicación auténtica?», «Únete a la red de comunicación más auténtica») y el anglicismo «invite link» (título y `aria-label` del botón de copiar en el inicio): no se tocaron.
-- Cuando se reactive la demo: repetir el recorrido con dos navegadores reales (audio, pantalla compartida, popup de solicitud) y revisar el medidor con voz remota.
+- Cuando se reactive el servicio real: repetir el recorrido con dos navegadores reales (audio, pantalla compartida, popup de solicitud) y revisar el medidor con voz remota.
 - Cerrar Ajustes sin guardar deja aplicado el tema previsualizado hasta recargar (comportamiento previo, no cambiado).

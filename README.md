@@ -4,9 +4,13 @@
 
 ---
 
-## Demo disponible bajo demanda
+## Demo con datos de ejemplo
 
-El Supabase de la demo está **en pausa por decisión del autor**. La demo se activa a pedido: mientras esté en pausa, entrar o registrarse no conecta. El sitio publicado muestra un aviso fijo en la pantalla de acceso que lo explica y remite al [perfil de GitHub del autor](https://github.com/JuanGaitanD) para pedir que se active. El aviso es contenido estático (`src/components/AvisoDemo.tsx`, usado en `Auth.tsx`): sin llamadas de red ni comprobación del servidor. Para activar la demo hay que reactivar el proyecto de Supabase ([docs/01-supabase-bootstrap.md](docs/01-supabase-bootstrap.md)) y, entonces, retirar el aviso.
+El Supabase del sitio está **en pausa por decisión del autor**, así que entrar con una cuenta real todavía no es posible. Para poder recorrer la app, el acceso ofrece **«Probar la demo»**: una **demo con datos de ejemplo, sin cuenta y sin red** (salas, amigos, mensajes directos, una llamada con personas de ejemplo con medidor, silencio y volumen, chat, ajustes y temas). Todo es ficticio, una franja fija dice «Demo · datos de ejemplo» con un botón para salir, y nada de lo que se haga se envía ni se guarda: ninguna petición sale del propio origen. Compartir pantalla y el audio real no están disponibles en la demo.
+
+**Para usarla de verdad hay que pedir una muestra o una prueba:** <https://juandgaitan.com/es/#contacto>.
+
+Cómo funciona (un cliente de Supabase simulado en memoria que se carga aparte, solo al entrar en la demo), qué es ficticio y cómo verificarlo: [docs/10-demo.md](docs/10-demo.md). Para activar el servicio real hay que reactivar el proyecto de Supabase ([docs/01-supabase-bootstrap.md](docs/01-supabase-bootstrap.md)); con la demo apagada la app usa el Supabase real sin cambios.
 
 ---
 
@@ -17,7 +21,7 @@ El Supabase de la demo está **en pausa por decisión del autor**. La demo se ac
 | Frontend | React 19, TypeScript, Vite 6, Tailwind CSS v4, Motion (animaciones), Lucide (iconos), Rubik (texto) y Montserrat (marca), ambas autoalojadas |
 | Backend | **Supabase** — Auth (email/password + Google OAuth), Postgres + Row Level Security, Realtime (Broadcast + Presence + CDC) |
 | Tiempo real | WebRTC mesh para audio + screen share · Supabase Realtime para señalización, presencia y chat |
-| Avatares | DiceBear (avataaars) |
+| Avatares | DiceBear (avataaars); en la demo, dibujados en local (SVG en línea, sin red) |
 | Deploy | GitHub Pages (build estático) |
 
 ---
@@ -150,11 +154,13 @@ Diseño completo en **Chrome y Edge 111+, Firefox 128+, Safari y iOS 16.4+ y Sam
 ```
 src/
 ├── App.tsx                # root: auth state + carga de perfil + ruteo
-├── supabase.ts            # cliente Supabase
+├── supabase.ts            # cliente Supabase (Proxy: el real, o el simulado si la demo está activa)
 ├── types.ts               # tipos compartidos (Participant, Call, DMMessage…)
 ├── index.css              # variables de tema, utilidades globales
 ├── components/
-│   ├── Auth.tsx           # login/registro (email + Google OAuth)
+│   ├── Auth.tsx           # login/registro (email + Google OAuth) y aviso de la demo
+│   ├── AvisoDemo.tsx      # «Esto es una demo»: probar con datos de ejemplo o pedir una prueba
+│   ├── FranjaDemo.tsx     # franja fija «Demo · datos de ejemplo» con salida
 │   ├── Dashboard.tsx      # listado y creación de llamadas + panel de amigos
 │   ├── CallRoom.tsx       # llamada en curso: presence + WebRTC + screen share
 │   ├── CallChatPanel.tsx  # chat deslizable dentro de la llamada
@@ -163,10 +169,12 @@ src/
 │   └── Profile.tsx        # editor de perfil y tema
 ├── hooks/
 │   ├── useWebRTC.ts       # WebRTC mesh: audio + screen share
-│   ├── useAudioLevel.ts   # nivel de audio para animación de avatar
+│   ├── useAudioLevel.ts   # nivel de audio para animación de avatar (o nivel simulado en la demo)
+│   ├── useRtc.ts          # elige WebRTC real o simulado (demo) una vez por montaje
 │   ├── useCallMessages.ts # chat de llamada (Supabase Realtime CDC)
 │   ├── useFriends.ts      # sistema de amigos (friendships table)
 │   └── useDMs.ts          # mensajes directos (dm_threads + dm_messages)
+├── demo/                  # modo demo: cliente simulado, datos ficticios, voz y llamada simuladas (carga diferida)
 └── lib/
     └── utils.ts           # cn() helper (clsx + tailwind-merge)
 
@@ -190,7 +198,8 @@ docs/
 ├── 06-profile-migration.md
 ├── 07-cleanup-firebase.md
 ├── 08-verification.md
-└── 09-deploy.md
+├── 09-deploy.md
+└── 10-demo.md
 
 scripts/
 └── deploy-gh-pages.mjs       # publica dist/ en la rama gh-pages
@@ -220,6 +229,7 @@ Detalles, tabla comparativa y trade-offs: [docs/00-architecture-decision.md](doc
 - [07 · Limpieza de Firebase](docs/07-cleanup-firebase.md)
 - [08 · Verificación E2E + medición de cuotas](docs/08-verification.md)
 - [09 · Deploy a GitHub Pages](docs/09-deploy.md)
+- [10 · Modo demo (datos de ejemplo, sin red)](docs/10-demo.md)
 
 ---
 
